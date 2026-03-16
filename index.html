@@ -3,107 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CORE // Robotics Tracker</title>
+    <title>MinutesLog — Meeting Minutes</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-<div class="container">
 
-    <header>
-        <div class="header-flex">
-            <h1>System.Path(Robotics)</h1>
-            <div class="header-actions">
-                <button id="exportBtn"   class="icon-btn" title="Export JSON"><i class="fas fa-download"></i></button>
-                <button id="exportMdBtn" class="icon-btn" title="Export Markdown"><i class="fab fa-markdown"></i></button>
-                <button id="importBtn"   class="icon-btn" title="Import Data"><i class="fas fa-upload"></i></button>
-                <button id="themeToggle" class="icon-btn" title="Toggle Theme"><i class="fas fa-moon"></i></button>
+<div class="app-shell">
+
+    <!-- ── SIDEBAR ────────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon"><i class="fas fa-book-open"></i></div>
+            <div class="brand-text">
+                <span class="brand-name">MinutesLog</span>
+                <span class="brand-tagline">Meeting Records</span>
             </div>
         </div>
-        <div class="progress-container">
-            <div class="progress-bar-bg"><div id="progressBar" class="progress-bar"></div></div>
-            <p id="progressText">INITIALIZING SYSTEM...</p>
-        </div>
-        <div class="stats-bar">
-            <div class="stat-item"><span class="stat-value" id="statTotal">0</span><span class="stat-label">Total</span></div>
-            <div class="stat-item"><span class="stat-value" id="statDone">0</span><span class="stat-label">Done</span></div>
-            <div class="stat-item"><span class="stat-value accent-red" id="statOverdue">0</span><span class="stat-label">Overdue</span></div>
-            <div class="stat-item"><span class="stat-value accent-yellow" id="statHigh">0</span><span class="stat-label">High Priority</span></div>
-            <div class="stat-item"><span class="stat-value accent-blue" id="statLogs">0</span><span class="stat-label">Log Entries</span></div>
-            <div class="stat-item"><span class="stat-value accent-green" id="statActions">0</span><span class="stat-label">Open Actions</span></div>
-        </div>
-    </header>
 
-    <div class="search-section">
-        <div class="search-input-wrap">
-            <i class="fas fa-search search-icon"></i>
-            <input type="text" id="searchInput" placeholder="Search tasks...">
-            <button id="clearSearchBtn" class="icon-btn clear-search-btn"><i class="fas fa-times"></i></button>
+        <div class="sidebar-stats">
+            <div class="sstat"><span id="ss-total">0</span><label>Meetings</label></div>
+            <div class="sstat"><span id="ss-actions" class="accent-warn">0</span><label>Open Actions</label></div>
+            <div class="sstat"><span id="ss-overdue" class="accent-danger">0</span><label>Overdue</label></div>
         </div>
-        <div class="filter-group">
-            <button class="filter-btn active" data-filter="all">All</button>
-            <button class="filter-btn" data-filter="active">Active</button>
-            <button class="filter-btn" data-filter="completed">Done</button>
-            <button class="filter-btn" data-filter="overdue">Overdue</button>
-            <button class="filter-btn" data-filter="high">High Priority</button>
-        </div>
-    </div>
 
-    <div id="tagFilterRow" class="tag-filter-row" style="display:none;">
-        <span class="tag-filter-label"><i class="fas fa-tag"></i> Filter by tag:</span>
-        <div id="tagFilterChips" class="tag-filter-chips"></div>
-        <button id="clearTagFilter" class="clear-tag-btn" style="display:none;">Clear</button>
-    </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">View</div>
+            <button class="nav-btn active" data-view="all"><i class="fas fa-list"></i> All Meetings</button>
+            <button class="nav-btn" data-view="pinned"><i class="fas fa-thumbtack"></i> Pinned</button>
+            <button class="nav-btn" data-view="actions"><i class="fas fa-check-square"></i> Action Items</button>
 
-    <div class="input-section">
-        <div class="input-row">
-            <input type="text" id="taskInput" placeholder="> Input new objective... (Press Enter)">
-            <select id="phaseSelect">
-                <option value="phase1">PHASE I: FOUNDATIONS</option>
-                <option value="phase2">PHASE II: ROS 2</option>
-                <option value="phase3">PHASE III: EMBEDDED</option>
-                <option value="phase4">PHASE IV: ADVANCED</option>
-            </select>
-            <select id="prioritySelect">
-                <option value="normal">NORMAL</option>
-                <option value="high">HIGH</option>
-                <option value="low">LOW</option>
-            </select>
-            <button id="addTaskBtn">EXECUTE</button>
+            <div class="nav-section-label" style="margin-top:20px;">Type</div>
+            <button class="nav-btn type-filter" data-type="all"><span class="type-dot dot-all"></span> All Types</button>
+            <button class="nav-btn type-filter" data-type="standup"><span class="type-dot dot-standup"></span> Standup</button>
+            <button class="nav-btn type-filter" data-type="review"><span class="type-dot dot-review"></span> Review</button>
+            <button class="nav-btn type-filter" data-type="brainstorm"><span class="type-dot dot-brainstorm"></span> Brainstorm</button>
+            <button class="nav-btn type-filter" data-type="retrospective"><span class="type-dot dot-retrospective"></span> Retrospective</button>
+            <button class="nav-btn type-filter" data-type="demo"><span class="type-dot dot-demo"></span> Demo</button>
+            <button class="nav-btn type-filter" data-type="planning"><span class="type-dot dot-planning"></span> Planning</button>
+            <button class="nav-btn type-filter" data-type="other"><span class="type-dot dot-other"></span> Other</button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-action-btn" id="exportJsonBtn"><i class="fas fa-download"></i> Export</button>
+            <button class="sidebar-action-btn" id="exportMdBtn"><i class="fab fa-markdown"></i> Markdown</button>
+            <label class="sidebar-action-btn"><i class="fas fa-upload"></i> Import<input type="file" id="importFileInput" accept=".json" style="display:none;"></label>
+            <button class="sidebar-action-btn danger" id="clearAllBtn"><i class="fas fa-trash"></i> Clear</button>
         </div>
-        <div class="input-row-2">
-            <textarea id="notesInput" placeholder="> Initial notes (optional)..." rows="2"></textarea>
-            <div class="meta-inputs">
-                <div class="meta-field">
-                    <label><i class="fas fa-calendar-alt"></i> Due Date</label>
-                    <input type="date" id="dueDateInput">
-                </div>
-                <div class="meta-field">
-                    <label><i class="fas fa-tags"></i> Tags (comma-separated)</label>
-                    <input type="text" id="tagsInput" placeholder="e.g. active, review, blocked">
+    </aside>
+
+    <!-- ── MAIN ───────────────────────────────────────────────────────────── -->
+    <main class="main-content">
+
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Search meetings, notes, actions…">
+                    <button id="clearSearch" class="clear-btn" style="display:none;"><i class="fas fa-times"></i></button>
                 </div>
             </div>
+            <div class="topbar-right">
+                <div id="syncStatus" class="sync-status" title="Sync status"></div>
+                <button id="themeBtn" class="icon-btn" title="Toggle theme"><i class="fas fa-moon"></i></button>
+                <button id="newMeetingBtn" class="primary-btn"><i class="fas fa-plus"></i> New Meeting</button>
+            </div>
         </div>
-    </div>
 
-    <main id="app"></main>
-
-    <!-- MEETING MINUTES -->
-    <div class="meetings-section">
-
-        <div class="section-header">
-            <div class="section-title-group">
-                <h2><i class="fas fa-users"></i> MEETING MINUTES</h2>
-                <div class="meeting-stats-pills">
-                    <span class="meeting-stat-pill" id="meetingCountPill">0 meetings</span>
-                    <span class="meeting-stat-pill accent-red" id="openActionsPill">0 open actions</span>
+        <!-- View: All Meetings / Pinned -->
+        <div id="view-meetings" class="view active">
+            <div class="view-header">
+                <h1 class="view-title" id="viewTitle">All Meetings</h1>
+                <div class="sort-group">
+                    <label>Sort:</label>
+                    <select id="sortSelect">
+                        <option value="date-desc">Newest first</option>
+                        <option value="date-asc">Oldest first</option>
+                        <option value="title">Title A–Z</option>
+                    </select>
                 </div>
             </div>
-            <div class="meeting-header-actions">
-                <div class="meeting-filter-group">
-                    <select id="meetingTypeFilter" class="meeting-filter-select">
-                        <option value="all">All types</option>
+            <div id="meetingsList" class="meetings-grid"></div>
+        </div>
+
+        <!-- View: Action Items -->
+        <div id="view-actions" class="view">
+            <div class="view-header">
+                <h1 class="view-title">Action Items</h1>
+                <div class="actions-filter-group">
+                    <button class="chip-btn active" data-afilter="open">Open</button>
+                    <button class="chip-btn" data-afilter="overdue">Overdue</button>
+                    <button class="chip-btn" data-afilter="done">Done</button>
+                    <button class="chip-btn" data-afilter="all">All</button>
+                </div>
+            </div>
+            <div id="actionsList" class="actions-table-wrap"></div>
+        </div>
+
+    </main>
+</div>
+
+<!-- ── MODAL ──────────────────────────────────────────────────────────────── -->
+<div id="modalOverlay" class="modal-overlay" style="display:none;">
+    <div class="modal" id="meetingModal">
+        <div class="modal-header">
+            <h2 id="modalTitle">New Meeting</h2>
+            <button class="modal-close" id="modalCloseBtn"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="field-row">
+                <div class="field field-grow">
+                    <label>Meeting Title <span class="req">*</span></label>
+                    <input type="text" id="mTitle" placeholder="e.g. Sprint Review Week 12">
+                </div>
+                <div class="field">
+                    <label>Type</label>
+                    <select id="mType">
                         <option value="standup">Standup</option>
                         <option value="review">Review</option>
                         <option value="brainstorm">Brainstorm</option>
@@ -112,105 +128,48 @@
                         <option value="planning">Planning</option>
                         <option value="other">Other</option>
                     </select>
-                    <input type="text" id="meetingSearchInput" placeholder="Search meetings..." class="meeting-search">
                 </div>
-                <button id="addMeetingBtn" class="add-meeting-btn"><i class="fas fa-plus"></i> NEW MEETING</button>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label><i class="fas fa-calendar"></i> Date</label>
+                    <input type="date" id="mDate">
+                </div>
+                <div class="field">
+                    <label><i class="fas fa-clock"></i> Time</label>
+                    <input type="time" id="mTime">
+                </div>
+                <div class="field field-grow">
+                    <label><i class="fas fa-user-friends"></i> Attendees</label>
+                    <input type="text" id="mAttendees" placeholder="Ravi, Priya, Alex…">
+                </div>
+                <div class="field field-grow">
+                    <label><i class="fas fa-tags"></i> Tags</label>
+                    <input type="text" id="mTags" placeholder="ros2, sprint, hardware…">
+                </div>
+            </div>
+            <div class="modal-two-col">
+                <div class="modal-col">
+                    <label class="col-label"><i class="fas fa-sticky-note"></i> Notes</label>
+                    <textarea id="mNotes" placeholder="Key decisions, discussion points, context…" rows="9"></textarea>
+                </div>
+                <div class="modal-col">
+                    <label class="col-label"><i class="fas fa-check-square"></i> Action Items</label>
+                    <div id="mActionItems" class="modal-action-items"></div>
+                    <button type="button" id="addAIBtn" class="add-ai-btn"><i class="fas fa-plus"></i> Add Action Item</button>
+                </div>
             </div>
         </div>
-
-        <!-- Add form -->
-        <div class="meeting-input-form" id="meetingForm" style="display:none;">
-            <div class="meeting-form-toprow">
-                <input type="text" id="meetingTitle" placeholder="> Meeting title..." class="meeting-title-input">
-                <select id="meetingType" class="meeting-type-select">
-                    <option value="standup">Standup</option>
-                    <option value="review">Review</option>
-                    <option value="brainstorm">Brainstorm</option>
-                    <option value="retrospective">Retrospective</option>
-                    <option value="demo">Demo</option>
-                    <option value="planning">Planning</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="meeting-meta-row">
-                <div class="meta-field"><label><i class="fas fa-calendar"></i> Date</label><input type="date" id="meetingDate"></div>
-                <div class="meta-field"><label><i class="fas fa-clock"></i> Time</label><input type="time" id="meetingTime"></div>
-                <div class="meta-field"><label><i class="fas fa-user-friends"></i> Attendees</label><input type="text" id="meetingAttendees" placeholder="Ravi, Priya, Alex..."></div>
-                <div class="meta-field"><label><i class="fas fa-tags"></i> Tags</label><input type="text" id="meetingTags" placeholder="comma-separated"></div>
-            </div>
-            <div class="meeting-form-body">
-                <div class="form-col">
-                    <label class="form-col-label"><i class="fas fa-sticky-note"></i> Notes</label>
-                    <textarea id="meetingNotes" placeholder="> Key decisions, discussion points, context..." rows="7"></textarea>
-                </div>
-                <div class="form-col">
-                    <label class="form-col-label"><i class="fas fa-check-square"></i> Action Items</label>
-                    <div id="actionItemsForm" class="action-items-form"></div>
-                    <button type="button" id="addActionItemBtn" class="add-action-item-btn"><i class="fas fa-plus"></i> Add Action Item</button>
-                </div>
-            </div>
-            <div class="linked-tasks-section">
-                <label class="form-col-label"><i class="fas fa-link"></i> Linked Tasks <span class="form-label-hint">(click to toggle)</span></label>
-                <div id="linkedTasksSelector" class="linked-tasks-selector"></div>
-            </div>
-            <div class="meeting-form-actions">
-                <button id="saveMeetingBtn" class="save-meeting-btn"><i class="fas fa-save"></i> SAVE MEETING</button>
-                <button id="cancelMeetingBtn" class="cancel-meeting-btn">CANCEL</button>
-            </div>
+        <div class="modal-footer">
+            <button id="cancelModalBtn" class="secondary-btn-m">Cancel</button>
+            <button id="saveModalBtn" class="primary-btn"><i class="fas fa-save"></i> Save Meeting</button>
         </div>
-
-        <!-- Edit form -->
-        <div class="meeting-input-form" id="meetingEditForm" style="display:none;">
-            <div class="meeting-form-toprow">
-                <input type="text" id="editMeetingTitle" placeholder="> Meeting title..." class="meeting-title-input">
-                <select id="editMeetingType" class="meeting-type-select">
-                    <option value="standup">Standup</option>
-                    <option value="review">Review</option>
-                    <option value="brainstorm">Brainstorm</option>
-                    <option value="retrospective">Retrospective</option>
-                    <option value="demo">Demo</option>
-                    <option value="planning">Planning</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="meeting-meta-row">
-                <div class="meta-field"><label><i class="fas fa-calendar"></i> Date</label><input type="date" id="editMeetingDate"></div>
-                <div class="meta-field"><label><i class="fas fa-clock"></i> Time</label><input type="time" id="editMeetingTime"></div>
-                <div class="meta-field"><label><i class="fas fa-user-friends"></i> Attendees</label><input type="text" id="editMeetingAttendees" placeholder="Ravi, Priya, Alex..."></div>
-                <div class="meta-field"><label><i class="fas fa-tags"></i> Tags</label><input type="text" id="editMeetingTags" placeholder="comma-separated"></div>
-            </div>
-            <div class="meeting-form-body">
-                <div class="form-col">
-                    <label class="form-col-label"><i class="fas fa-sticky-note"></i> Notes</label>
-                    <textarea id="editMeetingNotes" placeholder="> Meeting notes..." rows="7"></textarea>
-                </div>
-                <div class="form-col">
-                    <label class="form-col-label"><i class="fas fa-check-square"></i> Action Items</label>
-                    <div id="editActionItemsForm" class="action-items-form"></div>
-                    <button type="button" id="editAddActionItemBtn" class="add-action-item-btn"><i class="fas fa-plus"></i> Add Action Item</button>
-                </div>
-            </div>
-            <div class="linked-tasks-section">
-                <label class="form-col-label"><i class="fas fa-link"></i> Linked Tasks <span class="form-label-hint">(click to toggle)</span></label>
-                <div id="editLinkedTasksSelector" class="linked-tasks-selector"></div>
-            </div>
-            <div class="meeting-form-actions">
-                <button id="saveEditMeetingBtn" class="save-meeting-btn"><i class="fas fa-save"></i> UPDATE MEETING</button>
-                <button id="cancelEditMeetingBtn" class="cancel-meeting-btn">CANCEL</button>
-            </div>
-        </div>
-
-        <div id="meetingsList" class="meetings-list"></div>
     </div>
-
-    <div class="settings">
-        <button id="undoBtn" class="secondary-btn" disabled><i class="fas fa-undo"></i> UNDO</button>
-        <button id="resetBtn" class="danger-btn"><i class="fas fa-trash"></i> WIPE SYSTEM DATA</button>
-    </div>
-
 </div>
-<input type="file" id="fileInput" accept=".json" style="display:none;">
+
 <div id="toast" class="toast"></div>
+
+<!-- Firebase CDN — works on GitHub Pages without any build tools -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="script.js"></script>
