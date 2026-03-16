@@ -1,25 +1,5 @@
-// ── Firebase Setup ────────────────────────────────────────────────────────────
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import {
-    getFirestore, doc, getDoc, setDoc, onSnapshot
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-const firebaseConfig = {
-    apiKey:            "AIzaSyAj1pV6opEQl39sI-qNhjUvu5EP2odCzjw",
-    authDomain:        "krisync-b365b.firebaseapp.com",
-    projectId:         "krisync-b365b",
-    storageBucket:     "krisync-b365b.firebasestorage.app",
-    messagingSenderId: "1029080543168",
-    appId:             "1:1029080543168:web:341f3c446c4a51e500e225",
-    measurementId:     "G-478XHHM63V"
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db          = getFirestore(firebaseApp);
-
-// Firestore document references  — one doc holds all tasks, one holds all meetings
-const TASKS_DOC    = doc(db, "krisync", "tasks");
-const MEETINGS_DOC = doc(db, "krisync", "meetings");
+// ── Firebase is loaded via CDN <script> tags in index.html ───────────────────
+// No imports needed — firebase, firestore are global variables
 
 // ── Default Data ──────────────────────────────────────────────────────────────
 const defaultData = [
@@ -62,7 +42,18 @@ const MEETING_TYPE_COLORS = {
     other:         'type-other'
 };
 
+// ── Firebase Config ───────────────────────────────────────────────────────────
+const firebaseConfig = {
+    apiKey:            "AIzaSyAj1pV6opEQl39sI-qNhjUvu5EP2odCzjw",
+    authDomain:        "krisync-b365b.firebaseapp.com",
+    projectId:         "krisync-b365b",
+    storageBucket:     "krisync-b365b.firebasestorage.app",
+    messagingSenderId: "1029080543168",
+    appId:             "1:1029080543168:web:341f3c446c4a51e500e225"
+};
+
 // ── App State ─────────────────────────────────────────────────────────────────
+let db;
 let tasks               = [];
 let meetings            = [];
 let history             = [];
@@ -72,7 +63,7 @@ let activeTagFilter     = null;
 let editingMeetingId    = null;
 let formActionItems     = [];
 let editFormActionItems = [];
-let isSaving            = false;   // debounce guard
+let isSaving            = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -80,51 +71,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadTheme();
     setupEventListeners();
 
-    // Set default date/time on meeting form
     const now = new Date();
     document.getElementById('meetingDate').valueAsDate = now;
     document.getElementById('meetingTime').value = now.toTimeString().slice(0, 5);
 
-    // Load initial data from Firestore
+    // Initialize Firebase using CDN globals
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+
     await loadFromFirestore();
     showLoading(false);
-
-    // Start real-time listeners — any change on another device updates this UI instantly
     startRealtimeListeners();
 });
 
-// ── Loading Indicator ─────────────────────────────────────────────────────────
+// ── Loading Bar ───────────────────────────────────────────────────────────────
 function showLoading(on) {
-    let el = document.getElementById('firebaseLoadingBar');
+    let el = document.getElementById('fbLoadingBar');
     if (!el) {
         el = document.createElement('div');
-        el.id = 'firebaseLoadingBar';
-        el.style.cssText = `
-            position:fixed; top:0; left:0; width:100%; height:3px; z-index:9999;
-            background: linear-gradient(90deg, var(--primary-glow), var(--accent-blue));
-            transition: opacity 0.4s;
-        `;
+        el.id = 'fbLoadingBar';
+        el.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:3px;z-index:9999;background:linear-gradient(90deg,#4ec9b0,#569cd6);transition:opacity 0.4s;';
         document.body.prepend(el);
     }
     el.style.opacity = on ? '1' : '0';
 }
 
-// ── Firestore: Load ───────────────────────────────────────────────────────────
+// ── Firestore Load ────────────────────────────────────────────────────────────
 async function loadFromFirestore() {
     try {
-        // Load tasks
-        const tasksSnap = await getDoc(TASKS_DOC);
-        if (tasksSnap.exists()) {
-            tasks = tasksSnap.data().list || [];
+        const tasksDoc = await db.collection('krisync').doc('tasks').get();
+        if (tasksDoc.exists) {
+            tasks = tasksDoc.data().list || [];
         } else {
-            // First ever load — seed with defaults and save to Firestore
             tasks = JSON.parse(JSON.stringify(defaultData));
-            await setDoc(TASKS_DOC, { list: tasks });
+            await db.collection('krisync').doc('tasks').set({ list: tasks });
         }
 
-        // Load meetings
-        const meetingsSnap = await getDoc(MEETINGS_DOC);
-        meetings = meetingsSnap.exists() ? (meetingsSnap.data().list || []) : [];
+        const meetingsDoc = await db.collection('krisync').doc('meetings').get();
+        meetings = meetingsDoc.exists ? (meetingsDoc.data().list || []) : [];
 
         migrateTasks();
         migrateMeetings();
@@ -133,13 +117,13 @@ async function loadFromFirestore() {
         updateProgress();
         renderTagFilterRow();
     } catch (err) {
-        console.error("Firestore load error:", err);
-        showToast('Could not connect to cloud. Check your internet.', 'error');
-        // Fallback to localStorage so the app still works offline
-        const saved = localStorage.getItem('roboticsTasks');
-        tasks    = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(defaultData));
+        console.error('Firestore load error:', err);
+        showToast('Cloud sync failed — using local cache', 'error');
+        // Offline fallback
+        const saved  = localStorage.getItem('roboticsTasks');
+        tasks        = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(defaultData));
         const savedM = localStorage.getItem('roboticsMeetings');
-        meetings = savedM ? JSON.parse(savedM) : [];
+        meetings     = savedM ? JSON.parse(savedM) : [];
         migrateTasks();
         migrateMeetings();
         renderTasks();
@@ -149,12 +133,10 @@ async function loadFromFirestore() {
     }
 }
 
-// ── Firestore: Real-time Listeners ────────────────────────────────────────────
-// These fire whenever another device saves — your UI updates automatically
+// ── Real-time Listeners ───────────────────────────────────────────────────────
 function startRealtimeListeners() {
-    onSnapshot(TASKS_DOC, (snap) => {
-        if (isSaving) return;          // ignore echo from our own write
-        if (!snap.exists()) return;
+    db.collection('krisync').doc('tasks').onSnapshot(snap => {
+        if (isSaving || !snap.exists) return;
         tasks = snap.data().list || [];
         migrateTasks();
         renderTasks();
@@ -162,9 +144,8 @@ function startRealtimeListeners() {
         updateProgress();
     });
 
-    onSnapshot(MEETINGS_DOC, (snap) => {
-        if (isSaving) return;
-        if (!snap.exists()) return;
+    db.collection('krisync').doc('meetings').onSnapshot(snap => {
+        if (isSaving || !snap.exists) return;
         meetings = snap.data().list || [];
         migrateMeetings();
         renderMeetings();
@@ -172,23 +153,20 @@ function startRealtimeListeners() {
     });
 }
 
-// ── Firestore: Save ───────────────────────────────────────────────────────────
+// ── Firestore Save ────────────────────────────────────────────────────────────
 async function saveTasks() {
-    // Push to undo history
     history.push(JSON.parse(JSON.stringify(tasks)));
     if (history.length > 20) history.shift();
     updateUndoButton();
     updateProgress();
-
-    // Also keep localStorage as offline cache
     localStorage.setItem('roboticsTasks', JSON.stringify(tasks));
 
     isSaving = true;
     try {
-        await setDoc(TASKS_DOC, { list: tasks });
+        await db.collection('krisync').doc('tasks').set({ list: tasks });
     } catch (err) {
-        console.error("Save tasks error:", err);
-        showToast('Save failed — check internet connection', 'error');
+        console.error('Save tasks error:', err);
+        showToast('Save failed — check connection', 'error');
     } finally {
         isSaving = false;
     }
@@ -199,20 +177,20 @@ async function saveMeetingsToStorage() {
 
     isSaving = true;
     try {
-        await setDoc(MEETINGS_DOC, { list: meetings });
+        await db.collection('krisync').doc('meetings').set({ list: meetings });
     } catch (err) {
-        console.error("Save meetings error:", err);
-        showToast('Save failed — check internet connection', 'error');
+        console.error('Save meetings error:', err);
+        showToast('Save failed — check connection', 'error');
     } finally {
         isSaving = false;
     }
 }
 
-// ── Data Migration ────────────────────────────────────────────────────────────
+// ── Migration ─────────────────────────────────────────────────────────────────
 function migrateTasks() {
     tasks.forEach(task => {
-        if (!task.logEntries)           task.logEntries = [];
-        if (!task.tags)                 task.tags = [];
+        if (!task.logEntries)            task.logEntries = [];
+        if (!task.tags)                  task.tags = [];
         if (task.dueDate === undefined)  task.dueDate = null;
         if (task.notes && task.notes.trim() && task.logEntries.length === 0) {
             task.logEntries.push({ id: Date.now(), date: new Date().toISOString(), text: task.notes });
@@ -223,13 +201,13 @@ function migrateTasks() {
 
 function migrateMeetings() {
     meetings.forEach(m => {
-        if (!m.actionItems)             m.actionItems = [];
-        if (!m.attendees)               m.attendees = '';
-        if (!m.type)                    m.type = 'other';
-        if (!m.linkedTasks)             m.linkedTasks = [];
-        if (!m.tags)                    m.tags = [];
-        if (m.pinned === undefined)      m.pinned = false;
-        if (m.collapsed === undefined)   m.collapsed = false;
+        if (!m.actionItems)            m.actionItems = [];
+        if (!m.attendees)              m.attendees = '';
+        if (!m.type)                   m.type = 'other';
+        if (!m.linkedTasks)            m.linkedTasks = [];
+        if (!m.tags)                   m.tags = [];
+        if (m.pinned === undefined)    m.pinned = false;
+        if (m.collapsed === undefined) m.collapsed = false;
     });
 }
 
@@ -247,12 +225,12 @@ async function undo() {
         renderTagFilterRow();
         localStorage.setItem('roboticsTasks', JSON.stringify(tasks));
         isSaving = true;
-        try { await setDoc(TASKS_DOC, { list: tasks }); } finally { isSaving = false; }
+        try { await db.collection('krisync').doc('tasks').set({ list: tasks }); } finally { isSaving = false; }
         showToast('Action undone', 'success');
     }
 }
 
-// ── Progress / Stats ──────────────────────────────────────────────────────────
+// ── Progress ──────────────────────────────────────────────────────────────────
 function updateProgress() {
     const total     = tasks.length;
     const done      = tasks.filter(t => t.completed).length;
@@ -358,8 +336,8 @@ function renderTasks() {
         section.className = 'phase-section';
 
         let phaseTasks = tasks.filter(t => t.phase === key);
-        if (searchQuery)                   phaseTasks = phaseTasks.filter(t => t.text.toLowerCase().includes(searchQuery) || (t.tags||[]).some(g => g.toLowerCase().includes(searchQuery)));
-        if (activeFilter === 'active')     phaseTasks = phaseTasks.filter(t => !t.completed);
+        if (searchQuery)                       phaseTasks = phaseTasks.filter(t => t.text.toLowerCase().includes(searchQuery) || (t.tags||[]).some(g => g.toLowerCase().includes(searchQuery)));
+        if (activeFilter === 'active')         phaseTasks = phaseTasks.filter(t => !t.completed);
         else if (activeFilter === 'completed') phaseTasks = phaseTasks.filter(t => t.completed);
         else if (activeFilter === 'overdue')   phaseTasks = phaseTasks.filter(t => isOverdue(t));
         else if (activeFilter === 'high')      phaseTasks = phaseTasks.filter(t => t.priority === 'high');
@@ -472,20 +450,17 @@ window.toggleTask = function(id) {
     const t = tasks.find(t => t.id === id);
     if (t) { t.completed = !t.completed; saveTasks(); renderTasks(); showToast(t.completed ? 'Task completed! ✓' : 'Task reopened', 'success'); }
 };
-
 window.deleteTask = function(id) {
     if (!confirm('Delete this task?')) return;
     tasks = tasks.filter(t => t.id !== id);
     saveTasks(); renderTasks(); renderTagFilterRow(); showToast('Task deleted', 'success');
 };
-
 window.filterByTag = function(tag) {
     activeTagFilter = tag;
     document.getElementById('clearTagFilter').style.display = 'inline-block';
     document.querySelectorAll('.tag-chip').forEach(c => c.classList.toggle('active', c.dataset.tag === tag));
     renderTasks();
 };
-
 window.startEditTask = function(id) {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
@@ -504,9 +479,9 @@ window.startEditTask = function(id) {
 
     const editRow  = document.createElement('div'); editRow.className = 'inline-edit-row'; editRow.append(input, saveBtn, cancelBtn);
     const editMeta = document.createElement('div'); editMeta.className = 'inline-edit-meta';
-    const lDue = document.createElement('label'); lDue.textContent = 'Due: ';      lDue.appendChild(dueDateInput);
+    const lDue = document.createElement('label'); lDue.textContent = 'Due: ';       lDue.appendChild(dueDateInput);
     const lPri = document.createElement('label'); lPri.textContent = ' Priority: '; lPri.appendChild(prioritySelect);
-    const lTag = document.createElement('label'); lTag.textContent = ' Tags: ';    lTag.appendChild(tagsInput);
+    const lTag = document.createElement('label'); lTag.textContent = ' Tags: ';     lTag.appendChild(tagsInput);
     editMeta.append(lDue, lPri, lTag);
 
     textEl.style.display = 'none';
@@ -517,10 +492,9 @@ window.startEditTask = function(id) {
     const save = () => {
         const newText = input.value.trim();
         if (!newText) { showToast('Task name cannot be empty', 'error'); return; }
-        task.text     = newText;
-        task.dueDate  = dueDateInput.value || null;
+        task.text = newText; task.dueDate = dueDateInput.value || null;
         task.priority = prioritySelect.value;
-        task.tags     = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
+        task.tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
         saveTasks(); renderTasks(); renderTagFilterRow(); showToast('Task updated', 'success');
     };
     const cancel = () => {
@@ -540,7 +514,7 @@ function addTask() {
     if (!text) { showToast('Please enter a task', 'error'); return; }
 
     const newTask = {
-        id:         Date.now(), text,
+        id: Date.now(), text,
         phase:      document.getElementById('phaseSelect').value,
         priority:   document.getElementById('prioritySelect').value,
         logEntries: [],
@@ -566,13 +540,13 @@ window.showLogInput  = function(id) { const c=document.getElementById(`log-input
 window.hideLogInput  = function(id) { const c=document.getElementById(`log-input-${id}`);if(c){c.style.display='none';document.getElementById(`log-textarea-${id}`).value='';const h=document.getElementById(`log-hours-${id}`);if(h)h.value='';}};
 window.saveLogEntry  = function(id) {
     const textarea = document.getElementById(`log-textarea-${id}`);
-    const text     = textarea.value.trim();
+    const text = textarea.value.trim();
     if (!text) { showToast('Please enter some text','error'); return; }
     const task = tasks.find(t => t.id === id);
     if (task) {
         if (!task.logEntries) task.logEntries = [];
         const entry = { id: Date.now(), date: new Date().toISOString(), text };
-        const hi    = document.getElementById(`log-hours-${id}`);
+        const hi = document.getElementById(`log-hours-${id}`);
         const hours = hi ? parseFloat(hi.value) : NaN;
         if (!isNaN(hours) && hours > 0) entry.hours = hours;
         task.logEntries.push(entry);
@@ -606,7 +580,6 @@ function hideEditMeetingForm() {
     document.getElementById('meetingEditForm').style.display = 'none';
     editFormActionItems = []; editingMeetingId = null;
 }
-
 function addActionItemRow(containerId, itemsArray, existing = null) {
     const container = document.getElementById(containerId);
     const item = existing || { id: Date.now() + Math.random(), text: '', assignee: '', dueDate: '', done: false };
@@ -615,11 +588,11 @@ function addActionItemRow(containerId, itemsArray, existing = null) {
     const row = document.createElement('div');
     row.className = 'action-item-row';
     row.innerHTML = `
-        <input type="checkbox" class="ai-done-check" ${item.done ? 'checked' : ''} title="Mark done">
+        <input type="checkbox" class="ai-done-check" ${item.done ? 'checked' : ''}>
         <input type="text"  class="ai-text-input"     placeholder="Action item..." value="${escapeHtml(item.text)}">
         <input type="text"  class="ai-assignee-input" placeholder="Assignee"       value="${escapeHtml(item.assignee||'')}">
         <input type="date"  class="ai-date-input"                                   value="${item.dueDate||''}">
-        <button type="button" class="ai-remove-btn" title="Remove"><i class="fas fa-times"></i></button>`;
+        <button type="button" class="ai-remove-btn"><i class="fas fa-times"></i></button>`;
 
     row.querySelector('.ai-done-check').addEventListener('change',   e => { item.done     = e.target.checked; });
     row.querySelector('.ai-text-input').addEventListener('input',    e => { item.text     = e.target.value;   });
@@ -630,7 +603,6 @@ function addActionItemRow(containerId, itemsArray, existing = null) {
     container.appendChild(row);
     row.querySelector('.ai-text-input').focus();
 }
-
 function populateLinkedTasksSelector(containerId, selectedIds) {
     const container = document.getElementById(containerId);
     container.innerHTML = '';
@@ -642,7 +614,6 @@ function populateLinkedTasksSelector(containerId, selectedIds) {
         container.appendChild(chip);
     });
 }
-
 function getSelectedLinkedTasks(containerId) {
     return [...document.querySelectorAll(`#${containerId} .linked-task-chip.selected`)].map(c => parseInt(c.dataset.id));
 }
@@ -654,8 +625,7 @@ function saveMeeting() {
     if (!date)  { showToast('Please select a date','error'); return; }
 
     meetings.unshift({
-        id:          Date.now(),
-        title,
+        id: Date.now(), title,
         type:        document.getElementById('meetingType').value,
         date,
         time:        document.getElementById('meetingTime').value || '00:00',
@@ -664,18 +634,15 @@ function saveMeeting() {
         notes:       document.getElementById('meetingNotes').value.trim(),
         actionItems: formActionItems.filter(ai => ai.text.trim()),
         linkedTasks: getSelectedLinkedTasks('linkedTasksSelector'),
-        pinned:      false,
-        collapsed:   false,
-        createdAt:   new Date().toISOString()
+        pinned: false, collapsed: false,
+        createdAt: new Date().toISOString()
     });
-
     saveMeetingsToStorage(); renderMeetings(); updateProgress();
     hideMeetingForm(); showToast('Meeting saved!','success');
 }
 
 window.editMeeting = function(id) {
-    const m = meetings.find(x => x.id === id);
-    if (!m) return;
+    const m = meetings.find(x => x.id === id); if (!m) return;
     editingMeetingId    = id;
     editFormActionItems = JSON.parse(JSON.stringify(m.actionItems || []));
 
@@ -695,7 +662,6 @@ window.editMeeting = function(id) {
     document.getElementById('meetingEditForm').style.display = 'block';
     document.getElementById('editMeetingTitle').focus();
 };
-
 function saveEditMeeting() {
     const title = document.getElementById('editMeetingTitle').value.trim();
     if (!title) { showToast('Please enter a meeting title','error'); return; }
@@ -718,13 +684,13 @@ function saveEditMeeting() {
 }
 
 window.toggleActionItem = function(meetingId, aiId) {
-    const m  = meetings.find(x => x.id === meetingId); if (!m) return;
+    const m = meetings.find(x => x.id === meetingId); if (!m) return;
     const ai = m.actionItems.find(x => x.id === aiId);
     if (ai) { ai.done = !ai.done; saveMeetingsToStorage(); renderMeetings(); updateProgress(); }
 };
 window.togglePinMeeting = function(id) {
     const m = meetings.find(x => x.id === id);
-    if (m) { m.pinned = !m.pinned; saveMeetingsToStorage(); renderMeetings(); showToast(m.pinned ? 'Meeting pinned' : 'Meeting unpinned','success'); }
+    if (m) { m.pinned = !m.pinned; saveMeetingsToStorage(); renderMeetings(); showToast(m.pinned ? 'Pinned' : 'Unpinned','success'); }
 };
 window.toggleCollapseMeeting = function(id) {
     const m = meetings.find(x => x.id === id);
@@ -734,16 +700,15 @@ window.copyMeeting = function(id) {
     const m = meetings.find(x => x.id === id); if (!m) return;
     let text = `${m.title}\n${formatDateTime(m.date, m.time)}\n`;
     if (m.attendees) text += `Attendees: ${m.attendees}\n`;
-    text += '\n';
-    if (m.notes) text += `Notes:\n${m.notes}\n\n`;
+    if (m.notes) text += `\nNotes:\n${m.notes}\n`;
     if (m.actionItems && m.actionItems.length) {
-        text += 'Action Items:\n';
+        text += '\nAction Items:\n';
         m.actionItems.forEach(ai => { text += `[${ai.done?'x':' '}] ${ai.text}${ai.assignee?' — '+ai.assignee:''}${ai.dueDate?' (due: '+ai.dueDate+')':''}\n`; });
     }
-    navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard!','success')).catch(()=>showToast('Copy failed','error'));
+    navigator.clipboard.writeText(text).then(()=>showToast('Copied!','success')).catch(()=>showToast('Copy failed','error'));
 };
 window.deleteMeeting = function(id) {
-    if (!confirm('Delete this meeting record?')) return;
+    if (!confirm('Delete this meeting?')) return;
     meetings = meetings.filter(m => m.id !== id);
     saveMeetingsToStorage(); renderMeetings(); updateProgress(); showToast('Meeting deleted','success');
 };
@@ -763,7 +728,6 @@ function renderMeetings() {
         (m.actionItems||[]).some(ai => ai.text.toLowerCase().includes(searchVal))
     );
     if (typeVal !== 'all') filtered = filtered.filter(m => (m.type||'other') === typeVal);
-
     filtered.sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return new Date(b.date+'T'+(b.time||'00:00')) - new Date(a.date+'T'+(a.time||'00:00'));
@@ -774,7 +738,7 @@ function renderMeetings() {
     document.getElementById('openActionsPill').textContent  = `${openActions} open action${openActions !== 1 ? 's' : ''}`;
 
     if (filtered.length === 0) {
-        container.innerHTML = `<div class="empty-state"><i class="fas fa-clipboard"></i><p>${searchVal || typeVal !== 'all' ? 'No meetings match your filters' : 'No meetings recorded yet. Click "NEW MEETING" to add one.'}</p></div>`;
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-clipboard"></i><p>${searchVal || typeVal !== 'all' ? 'No meetings match your filters' : 'No meetings yet. Click "NEW MEETING" to add one.'}</p></div>`;
         return;
     }
 
@@ -789,8 +753,7 @@ function renderMeetings() {
         <div class="meeting-month-group">
             <div class="meeting-month-header">${month}</div>
             ${mList.map(m => renderMeetingCard(m)).join('')}
-        </div>`
-    ).join('');
+        </div>`).join('');
 }
 
 function renderMeetingCard(m) {
@@ -804,16 +767,12 @@ function renderMeetingCard(m) {
     const linkedTasks= (m.linkedTasks||[]).map(tid => tasks.find(t => t.id === tid)).filter(Boolean);
     const tagsHTML   = (m.tags||[]).length ? `<div class="meeting-tags-row">${m.tags.map(t=>`<span class="task-tag">${escapeHtml(t)}</span>`).join('')}</div>` : '';
     const attendeesHTML = m.attendees ? `<span class="meeting-attendees"><i class="fas fa-user-friends"></i> ${escapeHtml(m.attendees)}</span>` : '';
-
-    const actionBadge = totalAI > 0
-        ? `<span class="action-badge ${overdueAI>0?'has-overdue':doneCount===totalAI?'all-done':''}">${doneCount}/${totalAI} actions</span>`
-        : '';
+    const actionBadge = totalAI > 0 ? `<span class="action-badge ${overdueAI>0?'has-overdue':doneCount===totalAI?'all-done':''}">${doneCount}/${totalAI} actions</span>` : '';
 
     const aiHTML = actionItems.length ? `
         <div class="meeting-actions-section">
             <div class="meeting-actions-header">
-                <span class="meeting-section-label"><i class="fas fa-check-square"></i> Action Items</span>
-                ${actionBadge}
+                <span class="meeting-section-label"><i class="fas fa-check-square"></i> Action Items</span>${actionBadge}
             </div>
             <div class="action-items-list">
                 ${actionItems.map(ai => {
@@ -822,7 +781,7 @@ function renderMeetingCard(m) {
                         <span class="ai-checkbox" onclick="toggleActionItem(${m.id},${ai.id})">${ai.done?'<i class="fas fa-check-circle"></i>':'<i class="far fa-circle"></i>'}</span>
                         <span class="ai-text">${escapeHtml(ai.text)}</span>
                         ${ai.assignee?`<span class="ai-assignee"><i class="fas fa-user"></i> ${escapeHtml(ai.assignee)}</span>`:''}
-                        ${ai.dueDate ?`<span class="ai-due ${aiOv?'overdue':''}"><i class="fas fa-calendar-alt"></i> ${formatDate(ai.dueDate)}${aiOv?' ⚠':''}</span>`:''}
+                        ${ai.dueDate?`<span class="ai-due ${aiOv?'overdue':''}"><i class="fas fa-calendar-alt"></i> ${formatDate(ai.dueDate)}${aiOv?' ⚠':''}</span>`:''}
                     </div>`;
                 }).join('')}
             </div>
@@ -835,9 +794,7 @@ function renderMeetingCard(m) {
         </div>` : '';
 
     const notesHTML = m.notes && !m.collapsed ? `
-        <div class="meeting-notes">
-            ${m.notes.split('\n').map(line => line.trim() ? `<p>${escapeHtml(line)}</p>` : '').join('')}
-        </div>` : '';
+        <div class="meeting-notes">${m.notes.split('\n').map(line => line.trim() ? `<p>${escapeHtml(line)}</p>` : '').join('')}</div>` : '';
 
     return `
     <div class="meeting-card ${m.pinned?'pinned':''} ${m.collapsed?'collapsed':''}">
@@ -849,25 +806,21 @@ function renderMeetingCard(m) {
             </div>
             <div class="meeting-card-actions">
                 <button class="mcard-btn" onclick="togglePinMeeting(${m.id})" title="${m.pinned?'Unpin':'Pin'}"><i class="fas fa-thumbtack ${m.pinned?'pinned-icon':''}"></i></button>
-                <button class="mcard-btn" onclick="copyMeeting(${m.id})" title="Copy notes"><i class="fas fa-copy"></i></button>
+                <button class="mcard-btn" onclick="copyMeeting(${m.id})" title="Copy"><i class="fas fa-copy"></i></button>
                 <button class="mcard-btn" onclick="editMeeting(${m.id})" title="Edit"><i class="fas fa-pencil-alt"></i></button>
                 <button class="mcard-btn danger" onclick="deleteMeeting(${m.id})" title="Delete"><i class="fas fa-trash"></i></button>
-                <button class="mcard-btn collapse-btn" onclick="toggleCollapseMeeting(${m.id})" title="${m.collapsed?'Expand':'Collapse'}">
-                    <i class="fas fa-chevron-${m.collapsed?'down':'up'}"></i>
-                </button>
+                <button class="mcard-btn" onclick="toggleCollapseMeeting(${m.id})"><i class="fas fa-chevron-${m.collapsed?'down':'up'}"></i></button>
             </div>
         </div>
         <div class="meeting-card-meta">
             <span class="meeting-meta-item"><i class="fas fa-calendar"></i> ${dateStr}</span>
             <span class="meeting-meta-item"><i class="fas fa-clock"></i> ${timeStr}</span>
-            ${attendeesHTML}
-            ${actionBadge && m.collapsed ? actionBadge : ''}
+            ${attendeesHTML}${actionBadge && m.collapsed ? actionBadge : ''}
         </div>
         ${tagsHTML}
         ${m.collapsed ? '' : `${notesHTML}${aiHTML}${linkedHTML}`}
         <div class="meeting-collapse-toggle" onclick="toggleCollapseMeeting(${m.id})">
-            <i class="fas fa-chevron-${m.collapsed?'down':'up'}"></i>
-            ${m.collapsed?'Expand':'Collapse'}
+            <i class="fas fa-chevron-${m.collapsed?'down':'up'}"></i> ${m.collapsed?'Expand':'Collapse'}
         </div>
     </div>`;
 }
@@ -878,43 +831,29 @@ function exportData() {
     const url  = URL.createObjectURL(blob);
     Object.assign(document.createElement('a'), {href:url, download:`robotics-tracker-${new Date().toISOString().split('T')[0]}.json`}).click();
     URL.revokeObjectURL(url);
-    showToast('Data exported!','success');
+    showToast('Exported!','success');
 }
-
 function exportMarkdown() {
-    const lines = ['# Robotics Tracker Export', `\n> Exported: ${new Date().toLocaleString()}`, ''];
+    const lines = ['# Robotics Tracker Export', `> Exported: ${new Date().toLocaleString()}`, ''];
     Object.entries(phases).forEach(([key, config]) => {
-        const pt   = tasks.filter(t => t.phase === key);
-        const done = pt.filter(t => t.completed).length;
-        lines.push(`## ${config.title}`, `Progress: ${done}/${pt.length}`, '');
+        const pt = tasks.filter(t => t.phase === key);
+        lines.push(`## ${config.title}`, `Progress: ${pt.filter(t=>t.completed).length}/${pt.length}`, '');
         pt.forEach(task => {
             lines.push(`- ${task.completed?'[x]':'[ ]'} **${task.text}**${task.priority!=='normal'?` *(${task.priority})*`:''}${task.dueDate?` 📅 ${formatDate(task.dueDate)}`:''}${(task.tags||[]).length?` 🏷 ${task.tags.join(', ')}`:''}` );
             if (task.logEntries && task.logEntries.length) {
                 [...task.logEntries].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(log => {
-                    lines.push(`  - *${new Date(log.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}${log.hours?` (${log.hours}h)`:''}: * ${log.text}`);
+                    lines.push(`  - *${new Date(log.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}${log.hours?` (${log.hours}h)`:''}: ${log.text}`);
                 });
             }
         });
         lines.push('');
     });
-    if (meetings.length) {
-        lines.push('## Meeting Minutes','');
-        [...meetings].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(m => {
-            lines.push(`### ${m.title}`,`*${formatDateTime(m.date,m.time)} at ${m.time}*`);
-            if (m.attendees) lines.push(`Attendees: ${m.attendees}`);
-            if ((m.tags||[]).length) lines.push(`Tags: ${m.tags.join(', ')}`);
-            if (m.notes) lines.push('', m.notes);
-            if (m.actionItems&&m.actionItems.length) { lines.push('','**Action Items:**'); m.actionItems.forEach(ai=>lines.push(`- [${ai.done?'x':' '}] ${ai.text}${ai.assignee?' — '+ai.assignee:''}${ai.dueDate?' (due: '+ai.dueDate+')':''}`)); }
-            lines.push('');
-        });
-    }
     const blob = new Blob([lines.join('\n')], {type:'text/markdown'});
     const url  = URL.createObjectURL(blob);
     Object.assign(document.createElement('a'), {href:url, download:`robotics-tracker-${new Date().toISOString().split('T')[0]}.md`}).click();
     URL.revokeObjectURL(url);
     showToast('Markdown exported!','success');
 }
-
 async function importData(event) {
     const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -924,38 +863,37 @@ async function importData(event) {
             let impTasks, impMeetings;
             if (Array.isArray(imp))   { impTasks = imp; impMeetings = []; }
             else if (imp.tasks)       { impTasks = imp.tasks||[]; impMeetings = imp.meetings||[]; }
-            else throw new Error('Invalid data format');
-            if (confirm('Import this data? Current tasks and meetings will be replaced.')) {
+            else throw new Error('Invalid format');
+            if (confirm('Import? Current data will be replaced.')) {
                 tasks = impTasks; meetings = impMeetings; history = [];
                 await saveTasks(); await saveMeetingsToStorage();
                 renderTasks(); renderMeetings(); renderTagFilterRow();
-                showToast('Data imported!','success');
+                showToast('Imported!','success');
             }
         } catch(err) { showToast('Import error: '+err.message,'error'); }
     };
     reader.readAsText(file);
     event.target.value = '';
 }
-
 async function resetToDefault() {
-    if (!confirm('⚠️ This will delete all custom tasks and meetings, and reset to defaults. Continue?')) return;
+    if (!confirm('⚠️ Reset to defaults? All data will be deleted.')) return;
     tasks = JSON.parse(JSON.stringify(defaultData));
     meetings = []; history = [];
     activeTagFilter = null; activeFilter = 'all';
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter==='all'));
     await saveTasks(); await saveMeetingsToStorage();
     renderTasks(); renderMeetings(); renderTagFilterRow();
-    showToast('System reset to defaults','success');
+    showToast('Reset to defaults','success');
 }
 
-// ── Theme (stays in localStorage — it's just a preference, not data) ──────────
+// ── Theme ─────────────────────────────────────────────────────────────────────
 function loadTheme() {
     const theme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', theme);
     updateThemeIcon(theme);
 }
 function toggleTheme() {
-    const cur  = document.documentElement.getAttribute('data-theme') || 'dark';
+    const cur = document.documentElement.getAttribute('data-theme') || 'dark';
     const next = cur === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('theme', next);
