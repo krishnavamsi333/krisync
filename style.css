@@ -504,3 +504,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ── Sync Status Dot ────────────────────────────────────────────────────────── */
+.sync-status {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-hint);
+    flex-shrink: 0;
+    transition: background .3s;
+}
