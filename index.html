@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MinutesLog — Meeting Minutes</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app-shell">
+
+    <!-- ── SIDEBAR ────────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon"><i class="fas fa-book-open"></i></div>
+            <div class="brand-text">
+                <span class="brand-name">MinutesLog</span>
+                <span class="brand-tagline">Meeting Records</span>
+            </div>
+        </div>
+
+        <div class="sidebar-stats">
+            <div class="sstat"><span id="ss-total">0</span><label>Meetings</label></div>
+            <div class="sstat"><span id="ss-actions" class="accent-warn">0</span><label>Open Actions</label></div>
+            <div class="sstat"><span id="ss-overdue" class="accent-danger">0</span><label>Overdue</label></div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">View</div>
+            <button class="nav-btn active" data-view="all"><i class="fas fa-list"></i> All Meetings</button>
+            <button class="nav-btn" data-view="pinned"><i class="fas fa-thumbtack"></i> Pinned</button>
+            <button class="nav-btn" data-view="actions"><i class="fas fa-check-square"></i> Action Items</button>
+
+            <div class="nav-section-label" style="margin-top:20px;">Type</div>
+            <button class="nav-btn type-filter" data-type="all"><span class="type-dot dot-all"></span> All Types</button>
+            <button class="nav-btn type-filter" data-type="standup"><span class="type-dot dot-standup"></span> Standup</button>
+            <button class="nav-btn type-filter" data-type="review"><span class="type-dot dot-review"></span> Review</button>
+            <button class="nav-btn type-filter" data-type="brainstorm"><span class="type-dot dot-brainstorm"></span> Brainstorm</button>
+            <button class="nav-btn type-filter" data-type="retrospective"><span class="type-dot dot-retrospective"></span> Retrospective</button>
+            <button class="nav-btn type-filter" data-type="demo"><span class="type-dot dot-demo"></span> Demo</button>
+            <button class="nav-btn type-filter" data-type="planning"><span class="type-dot dot-planning"></span> Planning</button>
+            <button class="nav-btn type-filter" data-type="other"><span class="type-dot dot-other"></span> Other</button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-action-btn" id="exportJsonBtn" title="Export JSON"><i class="fas fa-download"></i> Export</button>
+            <button class="sidebar-action-btn" id="exportMdBtn" title="Export Markdown"><i class="fab fa-markdown"></i> Markdown</button>
+            <label class="sidebar-action-btn" title="Import JSON"><i class="fas fa-upload"></i> Import<input type="file" id="importFileInput" accept=".json" style="display:none;"></label>
+            <button class="sidebar-action-btn danger" id="clearAllBtn" title="Clear all data"><i class="fas fa-trash"></i> Clear</button>
+        </div>
+    </aside>
+
+    <!-- ── MAIN ───────────────────────────────────────────────────────────── -->
+    <main class="main-content">
+
+        <!-- Top bar -->
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Search meetings, notes, actions…">
+                    <button id="clearSearch" class="clear-btn" style="display:none;"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <button id="themeBtn" class="icon-btn" title="Toggle theme"><i class="fas fa-moon"></i></button>
+                <button id="newMeetingBtn" class="primary-btn"><i class="fas fa-plus"></i> New Meeting</button>
+            </div>
+        </div>
+
+        <!-- View: All Meetings / Pinned -->
+        <div id="view-meetings" class="view active">
+            <div class="view-header">
+                <h1 class="view-title" id="viewTitle">All Meetings</h1>
+                <div class="sort-group">
+                    <label>Sort:</label>
+                    <select id="sortSelect">
+                        <option value="date-desc">Newest first</option>
+                        <option value="date-asc">Oldest first</option>
+                        <option value="title">Title A–Z</option>
+                    </select>
+                </div>
+            </div>
+            <div id="meetingsList" class="meetings-grid"></div>
+        </div>
+
+        <!-- View: Action Items -->
+        <div id="view-actions" class="view">
+            <div class="view-header">
+                <h1 class="view-title">Action Items</h1>
+                <div class="actions-filter-group">
+                    <button class="chip-btn active" data-afilter="open">Open</button>
+                    <button class="chip-btn" data-afilter="overdue">Overdue</button>
+                    <button class="chip-btn" data-afilter="done">Done</button>
+                    <button class="chip-btn" data-afilter="all">All</button>
+                </div>
+            </div>
+            <div id="actionsList" class="actions-table-wrap"></div>
+        </div>
+
+    </main>
+</div>
+
+<!-- ── MODAL OVERLAY ──────────────────────────────────────────────────────── -->
+<div id="modalOverlay" class="modal-overlay" style="display:none;">
+    <div class="modal" id="meetingModal">
+        <div class="modal-header">
+            <h2 id="modalTitle">New Meeting</h2>
+            <button class="modal-close" id="modalCloseBtn"><i class="fas fa-times"></i></button>
+        </div>
+
+        <div class="modal-body">
+            <!-- Row 1: Title + Type -->
+            <div class="field-row">
+                <div class="field field-grow">
+                    <label>Meeting Title <span class="req">*</span></label>
+                    <input type="text" id="mTitle" placeholder="e.g. Sprint Review Week 12">
+                </div>
+                <div class="field">
+                    <label>Type</label>
+                    <select id="mType">
+                        <option value="standup">Standup</option>
+                        <option value="review">Review</option>
+                        <option value="brainstorm">Brainstorm</option>
+                        <option value="retrospective">Retrospective</option>
+                        <option value="demo">Demo</option>
+                        <option value="planning">Planning</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Row 2: Date, Time, Attendees, Tags -->
+            <div class="field-row">
+                <div class="field">
+                    <label><i class="fas fa-calendar"></i> Date</label>
+                    <input type="date" id="mDate">
+                </div>
+                <div class="field">
+                    <label><i class="fas fa-clock"></i> Time</label>
+                    <input type="time" id="mTime">
+                </div>
+                <div class="field field-grow">
+                    <label><i class="fas fa-user-friends"></i> Attendees</label>
+                    <input type="text" id="mAttendees" placeholder="Ravi, Priya, Alex…">
+                </div>
+                <div class="field field-grow">
+                    <label><i class="fas fa-tags"></i> Tags</label>
+                    <input type="text" id="mTags" placeholder="ros2, sprint, hardware…">
+                </div>
+            </div>
+
+            <!-- Two-column body -->
+            <div class="modal-two-col">
+                <div class="modal-col">
+                    <label class="col-label"><i class="fas fa-sticky-note"></i> Notes</label>
+                    <textarea id="mNotes" placeholder="Key decisions, discussion points, context…" rows="9"></textarea>
+                </div>
+                <div class="modal-col">
+                    <label class="col-label"><i class="fas fa-check-square"></i> Action Items</label>
+                    <div id="mActionItems" class="modal-action-items"></div>
+                    <button type="button" id="addAIBtn" class="add-ai-btn"><i class="fas fa-plus"></i> Add Action Item</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button id="cancelModalBtn" class="secondary-btn-m">Cancel</button>
+            <button id="saveModalBtn" class="primary-btn"><i class="fas fa-save"></i> Save Meeting</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
