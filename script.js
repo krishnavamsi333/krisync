@@ -211,10 +211,10 @@ function bindEvents() {
 
     // Clear API key
     document.getElementById('clearApiKeyBtn').addEventListener('click', () => {
-        if (!localStorage.getItem('ml-anthropic-key')) {
+        if (!localStorage.getItem('ml-gemini-key')) {
             showToast('No API key saved', 'error'); return;
         }
-        localStorage.removeItem('ml-anthropic-key');
+        localStorage.removeItem('ml-gemini-key');
         showToast('API key cleared', 'success');
     });
 
@@ -724,7 +724,7 @@ function duplicateMeeting() {
     });
 }
 
-// ── AI Extract Actions ────────────────────────────────────────────────────────
+// ── AI Extract Actions (Gemini Flash — free tier) ─────────────────────────────
 async function aiExtractActions() {
     const notes = document.getElementById('mNotes').value.trim();
     if (!notes) {
@@ -732,34 +732,23 @@ async function aiExtractActions() {
         return;
     }
 
-    // Get or prompt for API key
-    let apiKey = localStorage.getItem('ml-anthropic-key') || '';
+    // Get or prompt for Gemini API key
+    let apiKey = localStorage.getItem('ml-gemini-key') || '';
     if (!apiKey) {
         apiKey = prompt(
-            'Enter your Anthropic API key to use AI extraction.\n' +
+            'Enter your FREE Gemini API key to use AI extraction.\n' +
             'It will be saved locally in your browser only.\n\n' +
-            'Get one at: console.anthropic.com'
+            'Get one free (no credit card) at:\n' +
+            'aistudio.google.com → Get API Key'
         );
         if (!apiKey || !apiKey.trim()) return;
         apiKey = apiKey.trim();
-        localStorage.setItem('ml-anthropic-key', apiKey);
+        localStorage.setItem('ml-gemini-key', apiKey);
     }
 
     document.getElementById('aiLoadingOverlay').style.display = 'flex';
 
-    try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-                "anthropic-dangerous-direct-browser-access": "true"
-            },
-            body: JSON.stringify({
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 1000,
-                system: `You are a meeting minutes assistant. Given raw meeting notes, extract action items and provide a clean summary.
+    const prompt_text = `You are a meeting minutes assistant. Given raw meeting notes, extract action items and provide a clean summary.
 Respond ONLY with a valid JSON object in this exact format (no markdown, no backticks, no preamble):
 {
   "summary": "2-3 sentence concise summary of the meeting",
@@ -767,13 +756,26 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no back
     { "text": "action description", "assignee": "name or empty string", "dueDate": "YYYY-MM-DD or empty string" }
   ]
 }
-If no clear action items exist, return an empty array. For due dates, only include if explicitly mentioned. Keep action items concise and actionable.`,
-                messages: [{ role: "user", content: `Meeting notes:\n${notes}` }]
-            })
-        });
+If no clear action items exist, return an empty array. For due dates, only include if explicitly mentioned. Keep action items concise and actionable.
 
-        if (response.status === 401) {
-            localStorage.removeItem('ml-anthropic-key');
+Meeting notes:
+${notes}`;
+
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt_text }] }],
+                    generationConfig: { temperature: 0.2, maxOutputTokens: 1000 }
+                })
+            }
+        );
+
+        if (response.status === 400 || response.status === 403) {
+            localStorage.removeItem('ml-gemini-key');
             showToast('Invalid API key — cleared, try again', 'error');
             return;
         }
@@ -783,8 +785,8 @@ If no clear action items exist, return an empty array. For due dates, only inclu
         }
 
         const data = await response.json();
-        const text = data.content?.find(b => b.type === 'text')?.text || '';
-        const cleaned = text.replace(/```json[\s\S]*?```|```/g, '').trim();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const cleaned = raw.replace(/```json[\s\S]*?```|```[\s\S]*?```|```/g, '').trim();
         const parsed = JSON.parse(cleaned);
 
         // Replace notes with summary
