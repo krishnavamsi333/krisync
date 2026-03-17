@@ -6,7 +6,7 @@
     <title>MinutesLog — Meeting Minutes</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -60,9 +60,11 @@
         <div class="sidebar-footer">
             <button class="sidebar-action-btn" id="exportJsonBtn"><i class="fas fa-download"></i> Export JSON</button>
             <button class="sidebar-action-btn" id="exportMdBtn"><i class="fab fa-markdown"></i> Markdown</button>
+            <button class="sidebar-action-btn" id="exportXlsxBtn"><i class="fas fa-file-excel"></i> Excel (.xlsx)</button>
             <label class="sidebar-action-btn"><i class="fas fa-upload"></i> Import<input type="file" id="importFileInput" accept=".json" style="display:none;"></label>
             <button class="sidebar-action-btn" id="shortcutsBtn"><i class="fas fa-keyboard"></i> Shortcuts</button>
             <button class="sidebar-action-btn" id="clearApiKeyBtn" title="Clear saved Anthropic API key"><i class="fas fa-key"></i> Clear API Key</button>
+            <button class="sidebar-action-btn" id="printBtn"><i class="fas fa-print"></i> Print / PDF</button>
             <button class="sidebar-action-btn danger" id="clearAllBtn"><i class="fas fa-trash"></i> Clear All</button>
         </div>
     </aside>
@@ -80,11 +82,29 @@
             </div>
             <div class="topbar-right">
                 <div id="syncStatus" class="sync-status" title="Sync status"></div>
-                <button id="themeBtn" class="icon-btn" title="Toggle theme"><i class="fas fa-moon"></i></button>
+                <button id="themeBtn" class="icon-btn" title="Change theme"><i class="fas fa-palette"></i></button>
                 <button id="newMeetingBtn" class="primary-btn"><i class="fas fa-plus"></i> New Meeting</button>
             </div>
         </div>
 
+
+        <!-- ── QUICK ADD BAR ──────────────────────────────────────────────── -->
+        <div class=quick-add-bar id=quickAddBar>
+            <div class=quick-add-inner>
+                <select id=qaType class=qa-type-select>
+                    <option value="standup">⚡ Standup</option>
+                    <option value="review">📋 Review</option>
+                    <option value="brainstorm">💡 Brainstorm</option>
+                    <option value="retrospective">🔁 Retro</option>
+                    <option value="planning">🗓 Planning</option>
+                    <option value="demo">🎯 Demo</option>
+                    <option value="other">📝 Other</option>
+                </select>
+                <input type="text" id="qaTitle" class="qa-input" placeholder="Quick log a meeting… press Enter">
+                <button id="qaSubmit" class="qa-submit-btn"><i class="fas fa-arrow-right"></i></button>
+                <button id="qaExpand" class="qa-expand-btn" title="Full editor"><i class="fas fa-expand-alt"></i></button>
+            </div>
+        </div>
         <!-- View: All Meetings / Pinned / This Week -->
         <div id="view-meetings" class="view active">
             <div class="view-header">
@@ -112,6 +132,7 @@
                     <button class="chip-btn" data-afilter="all">All</button>
                 </div>
             </div>
+            <div id="assigneeFilterBar" class="assignee-filter-bar" style="display:none;"></div>
             <div id="actionsList" class="actions-table-wrap"></div>
         </div>
 
@@ -176,6 +197,7 @@
                         <label class="col-label"><i class="fas fa-sticky-note"></i> Notes</label>
                         <span id="wordCountBadge" class="word-count-badge">0 words</span>
                     </div>
+                    <div class="template-chips" id="templateChips"><span class="tpl-label">Templates:</span><button type="button" class="tpl-btn" data-tpl="standup">Standup</button><button type="button" class="tpl-btn" data-tpl="review">Review</button><button type="button" class="tpl-btn" data-tpl="retro">Retro</button><button type="button" class="tpl-btn" data-tpl="planning">Planning</button></div>
                     <textarea id="mNotes" placeholder="Key decisions, discussion points, context…&#10;&#10;Tip: Click 'AI Extract' to auto-parse action items from raw notes!" rows="9"></textarea>
                 </div>
                 <div class="modal-col">
@@ -218,6 +240,8 @@
             <div class="shortcut-row"><kbd>2</kbd> <span>Pinned view</span></div>
             <div class="shortcut-row"><kbd>3</kbd> <span>This Week view</span></div>
             <div class="shortcut-row"><kbd>4</kbd> <span>Action Items view</span></div>
+            <div class="shortcut-row"><kbd>P</kbd> <span>Print current view</span></div>
+            <div class="shortcut-row"><kbd>E</kbd> <span>Export Markdown</span></div>
         </div>
     </div>
 </div>
@@ -230,6 +254,8 @@
 <!-- Firebase CDN -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

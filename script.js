@@ -19,14 +19,18 @@ let actionFilter  = 'open';
 let editingId     = null;
 let formAIs       = [];
 let isSaving      = false;
+let unsubscribeMeetings = null;
 
 const ML_COLLECTION = 'minuteslog';
-const ML_DOC        = 'meetings';
+const ML_LEGACY_DOC = 'meetings';
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
     applyTheme(localStorage.getItem('ml-theme') || 'dark');
     bindEvents();
+    initQuickAdd();
+    initDraftAutosave();
+    initTemplateChips();
     setDefaultDateTime();
     showSyncStatus('connecting');
 
@@ -55,13 +59,25 @@ function showSyncStatus(state) {
 // ── Firestore Load ────────────────────────────────────────────────────────────
 async function loadFromFirestore() {
     try {
-        const snap = await db.collection(ML_COLLECTION).doc(ML_DOC).get();
-        if (snap.exists) {
-            meetings = snap.data().list || [];
+        const colRef = db.collection(ML_COLLECTION);
+        const snap = await colRef.get();
+        const cloudMeetings = extractMeetingsFromDocs(snap.docs);
+
+        if (cloudMeetings.length === 0) {
+            const legacy = snap.docs.find(d => d.id === ML_LEGACY_DOC);
+            const legacyList = legacy?.data()?.list;
+            if (Array.isArray(legacyList) && legacyList.length) {
+                meetings = legacyList;
+                migrateMeetings();
+                await syncMeetingsToFirestore();
+                showToast('Cloud data migrated to improved sync format', 'success');
+            } else {
+                meetings = [];
+            }
         } else {
-            meetings = [];
-            await db.collection(ML_COLLECTION).doc(ML_DOC).set({ list: [] });
+            meetings = cloudMeetings;
         }
+
         migrateMeetings();
         render();
         showSyncStatus('synced');
@@ -78,9 +94,14 @@ async function loadFromFirestore() {
 
 // ── Real-time Listener ────────────────────────────────────────────────────────
 function startRealtimeListener() {
-    db.collection(ML_COLLECTION).doc(ML_DOC).onSnapshot(snap => {
-        if (isSaving || !snap.exists) return;
-        meetings = snap.data().list || [];
+    if (unsubscribeMeetings) unsubscribeMeetings();
+
+    unsubscribeMeetings = db.collection(ML_COLLECTION).onSnapshot(snap => {
+        if (isSaving) return;
+        const incoming = extractMeetingsFromDocs(snap.docs);
+        if (!incoming.length) return;
+
+        meetings = incoming;
         migrateMeetings();
         render();
         showSyncStatus('synced');
@@ -97,7 +118,7 @@ async function saveData() {
     showSyncStatus('saving');
     isSaving = true;
     try {
-        await db.collection(ML_COLLECTION).doc(ML_DOC).set({ list: meetings });
+        await syncMeetingsToFirestore();
         showSyncStatus('synced');
     } catch (err) {
         console.error('Save error:', err);
@@ -108,16 +129,91 @@ async function saveData() {
     }
 }
 
+async function syncMeetingsToFirestore() {
+    const colRef = db.collection(ML_COLLECTION);
+    const snap = await colRef.get();
+    const existingIds = new Set(
+        snap.docs
+            .filter(d => d.id !== ML_LEGACY_DOC && isMeetingDoc(d.data()))
+            .map(d => d.id)
+    );
+
+    const desiredIds = new Set();
+    const batch = db.batch();
+
+    meetings.forEach(m => {
+        const id = String(m.id);
+        desiredIds.add(id);
+        batch.set(colRef.doc(id), cleanMeetingForSave(m), { merge: true });
+    });
+
+    existingIds.forEach(id => {
+        if (!desiredIds.has(id)) batch.delete(colRef.doc(id));
+    });
+
+    batch.set(
+        colRef.doc(ML_LEGACY_DOC),
+        {
+            migratedToDocs: true,
+            count: meetings.length,
+            updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+    );
+
+    await batch.commit();
+}
+
+function cleanMeetingForSave(m) {
+    return {
+        id: String(m.id),
+        pinned: !!m.pinned,
+        createdAt: m.createdAt || new Date().toISOString(),
+        title: m.title || '',
+        type: m.type || 'other',
+        date: m.date || '',
+        time: m.time || '',
+        endTime: m.endTime || '',
+        attendees: m.attendees || '',
+        tags: Array.isArray(m.tags) ? m.tags : [],
+        notes: m.notes || '',
+        actionItems: (m.actionItems || []).map(ai => ({
+            id: String(ai.id || newId()),
+            text: ai.text || '',
+            assignee: ai.assignee || '',
+            dueDate: ai.dueDate || '',
+            done: !!ai.done
+        })),
+        updatedAt: new Date().toISOString()
+    };
+}
+
+function extractMeetingsFromDocs(docs) {
+    return docs
+        .filter(d => d.id !== ML_LEGACY_DOC && isMeetingDoc(d.data()))
+        .map(d => {
+            const data = d.data() || {};
+            return { ...data, id: String(data.id || d.id) };
+        });
+}
+
+function isMeetingDoc(data) {
+    return !!data && typeof data === 'object' && typeof data.title === 'string';
+}
+
 // ── Migration ─────────────────────────────────────────────────────────────────
 function migrateMeetings() {
     meetings.forEach(m => {
+        if (!m.id)                 m.id = newId();
+        m.id = String(m.id);
         if (!m.actionItems)         m.actionItems = [];
         if (!m.tags)                m.tags = [];
         if (!m.type)                m.type = 'other';
         if (m.pinned === undefined) m.pinned = false;
         if (!m.endTime)             m.endTime = '';
         m.actionItems.forEach(ai => {
-            if (ai.id === undefined) ai.id = Date.now() + Math.random();
+            if (ai.id === undefined || ai.id === null || ai.id === '') ai.id = newId();
+            ai.id = String(ai.id);
         });
     });
 }
@@ -164,7 +260,7 @@ function bindEvents() {
     });
 
     // Theme & new meeting
-    document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+    document.getElementById('themeBtn').addEventListener('click', showThemePicker);
     document.getElementById('newMeetingBtn').addEventListener('click', openNewModal);
     document.getElementById('mobileNewBtn')?.addEventListener('click', openNewModal);
 
@@ -199,6 +295,7 @@ function bindEvents() {
     // Import / Export / Clear
     document.getElementById('exportJsonBtn').addEventListener('click', exportJSON);
     document.getElementById('exportMdBtn').addEventListener('click', exportMarkdown);
+    document.getElementById('exportXlsxBtn').addEventListener('click', exportExcel);
     document.getElementById('importFileInput').addEventListener('change', importJSON);
     document.getElementById('clearAllBtn').addEventListener('click', clearAll);
 
@@ -208,6 +305,8 @@ function bindEvents() {
     document.getElementById('shortcutsModal').addEventListener('click', e => {
         if (e.target === document.getElementById('shortcutsModal')) hideShortcuts();
     });
+
+    document.getElementById('printBtn')?.addEventListener('click', printView);
 
     // Clear API key
     document.getElementById('clearApiKeyBtn').addEventListener('click', () => {
@@ -250,6 +349,8 @@ function bindEvents() {
             if (e.key === '2') { setView('pinned'); highlightNavBtn('pinned'); }
             if (e.key === '3') { setView('thisweek'); highlightNavBtn('thisweek'); }
             if (e.key === '4') { setView('actions'); highlightNavBtn('actions'); }
+            if (e.key === 'p' || e.key === 'P') printView();
+            if (e.key === 'e' || e.key === 'E') exportMarkdown();
         }
     });
 }
@@ -259,7 +360,205 @@ function highlightNavBtn(view) {
     document.querySelector(`.nav-btn[data-view="${view}"]`)?.classList.add('active');
 }
 
-// ── Mobile Sidebar ────────────────────────────────────────────────────────────
+// ── Quick Add Bar ─────────────────────────────────────────────────────────────
+function initQuickAdd() {
+    const input  = document.getElementById('qaTitle');
+    const submit = document.getElementById('qaSubmit');
+    const expand = document.getElementById('qaExpand');
+    if (!input) return;
+
+    const doQuickAdd = async () => {
+        const title = input.value.trim();
+        if (!title) { input.focus(); return; }
+        const type = document.getElementById('qaType').value;
+        const now  = new Date();
+        const meeting = {
+            id: Date.now(), pinned: false, createdAt: now.toISOString(),
+            title, type,
+            date:  now.toISOString().split('T')[0],
+            time:  now.toTimeString().slice(0,5),
+            endTime: '', attendees: '', tags: [], notes: '', actionItems: []
+        };
+        meetings.unshift(meeting);
+        await saveData();
+        render();
+        input.value = '';
+        // flash the new card
+        setTimeout(() => {
+            const card = document.querySelector(`.meeting-card[data-id="${meeting.id}"]`);
+            if (card) { card.classList.add('flash-new'); setTimeout(() => card.classList.remove('flash-new'), 900); }
+        }, 100);
+        showToast(`"${title}" logged`, 'success');
+    };
+
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doQuickAdd(); });
+    submit.addEventListener('click', doQuickAdd);
+    expand.addEventListener('click', () => {
+        const title = input.value.trim();
+        openNewModal();
+        if (title) {
+            document.getElementById('mTitle').value = title;
+            document.getElementById('mType').value  = document.getElementById('qaType').value;
+            input.value = '';
+        }
+    });
+}
+
+// ── Draft Autosave ─────────────────────────────────────────────────────────────
+const DRAFT_KEY = 'ml-draft';
+function saveDraft() {
+    const draft = {
+        title:     document.getElementById('mTitle').value,
+        type:      document.getElementById('mType').value,
+        date:      document.getElementById('mDate').value,
+        time:      document.getElementById('mTime').value,
+        endTime:   document.getElementById('mEndTime').value,
+        attendees: document.getElementById('mAttendees').value,
+        tags:      document.getElementById('mTags').value,
+        notes:     document.getElementById('mNotes').value,
+        formAIs:   JSON.parse(JSON.stringify(formAIs)),
+        editingId
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+}
+function loadDraft() {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return false;
+    try {
+        const d = JSON.parse(raw);
+        if (!d.title && !d.notes) return false;
+        if (!confirm('Restore unsaved draft?')) { clearDraft(); return false; }
+        document.getElementById('mTitle').value     = d.title || '';
+        document.getElementById('mType').value      = d.type  || 'standup';
+        document.getElementById('mDate').value      = d.date  || '';
+        document.getElementById('mTime').value      = d.time  || '';
+        document.getElementById('mEndTime').value   = d.endTime || '';
+        document.getElementById('mAttendees').value = d.attendees || '';
+        document.getElementById('mTags').value      = d.tags  || '';
+        document.getElementById('mNotes').value     = d.notes || '';
+        editingId = d.editingId || null;
+        formAIs   = d.formAIs  || [];
+        const container = document.getElementById('mActionItems');
+        container.innerHTML = '';
+        formAIs.forEach(ai => addAIRow(ai));
+        updateWordCount();
+        return true;
+    } catch { return false; }
+}
+function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+function initDraftAutosave() {
+    const fields = ['mTitle','mType','mDate','mTime','mEndTime','mAttendees','mTags','mNotes'];
+    fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', saveDraft);
+    });
+}
+
+// ── Agenda Templates ───────────────────────────────────────────────────────────
+const TEMPLATES = {
+    standup: `Yesterday:\n- \n\nToday:\n- \n\nBlockers:\n- `,
+    review:  `Goals reviewed:\n- \n\nAccomplishments:\n- \n\nGaps / Issues:\n- \n\nNext steps:\n- `,
+    retro:   `What went well:\n- \n\nWhat didn't go well:\n- \n\nWhat to improve:\n- \n\nAction items agreed:\n- `,
+    planning: `Sprint goal:\n\nStories / tasks:\n- \n\nCapacity:\n\nRisks:\n- \n\nDefinition of done:\n- `
+};
+function initTemplateChips() {
+    document.querySelectorAll('.tpl-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tpl  = TEMPLATES[btn.dataset.tpl];
+            const area = document.getElementById('mNotes');
+            if (!area || !tpl) return;
+            if (area.value && !confirm('Replace notes with template?')) return;
+            area.value = tpl;
+            updateWordCount();
+            area.focus();
+            saveDraft();
+        });
+    });
+}
+
+// ── Relative Time ─────────────────────────────────────────────────────────────
+function relativeTime(dateStr) {
+    const d    = new Date(dateStr + 'T00:00:00');
+    const now  = new Date(); now.setHours(0,0,0,0);
+    const diff = Math.round((now - d) / 86400000);
+    if (diff === 0)  return '<span class="rel-time today">Today</span>';
+    if (diff === 1)  return '<span class="rel-time yesterday">Yesterday</span>';
+    if (diff === -1) return '<span class="rel-time tomorrow">Tomorrow</span>';
+    if (diff > 0 && diff < 7)  return `<span class="rel-time recent">${diff}d ago</span>`;
+    if (diff > 0 && diff < 30) return `<span class="rel-time">${Math.floor(diff/7)}w ago</span>`;
+    return '';
+}
+
+// ── Assignee Filter ────────────────────────────────────────────────────────────
+let assigneeFilter = '';
+function renderAssigneeFilterBar() {
+    const bar = document.getElementById('assigneeFilterBar');
+    if (!bar) return;
+    const assignees = new Set();
+    meetings.forEach(m => (m.actionItems||[]).forEach(ai => { if (ai.assignee) assignees.add(ai.assignee); }));
+    if (assignees.size === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+        <span class="afilter-label">Assignee:</span>
+        <button class="afilter-chip ${!assigneeFilter?'active':''}" data-a="">All</button>
+        ${[...assignees].map(a => `<button class="afilter-chip ${assigneeFilter===a?'active':''}" data-a="${esc(a)}">${esc(a)}</button>`).join('')}
+    `;
+    bar.querySelectorAll('.afilter-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+            assigneeFilter = btn.dataset.a;
+            renderAssigneeFilterBar();
+            renderActions();
+        });
+    });
+}
+
+// ── Print / PDF ────────────────────────────────────────────────────────────────
+function printView() {
+    let list = [...meetings];
+    if (currentView === 'pinned')   list = list.filter(m => m.pinned);
+    if (currentType !== 'all')      list = list.filter(m => (m.type||'other') === currentType);
+    if (searchQuery) list = list.filter(m =>
+        m.title.toLowerCase().includes(searchQuery) ||
+        (m.notes||'').toLowerCase().includes(searchQuery)
+    );
+    list.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>MinutesLog Export</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'JetBrains Mono',monospace;font-size:11pt;color:#1a1508;background:#fff;padding:2cm}
+  h1{font-family:'Playfair Display',serif;font-size:24pt;margin-bottom:6pt;color:#1a1508}
+  .meta{font-size:9pt;color:#8a7d68;margin-bottom:2cm;border-bottom:1px solid #ddd;padding-bottom:8pt}
+  .meeting{margin-bottom:1.5cm;page-break-inside:avoid;border-left:3px solid #e8a830;padding-left:14pt}
+  .meeting-title{font-family:'Playfair Display',serif;font-size:15pt;font-weight:500;margin-bottom:4pt}
+  .meeting-date{font-size:9pt;color:#8a7d68;margin-bottom:8pt}
+  .meeting-notes{font-size:10.5pt;line-height:1.6;color:#333;white-space:pre-wrap;margin-bottom:8pt}
+  .ai-list{margin-top:6pt}
+  .ai-item{font-size:10pt;padding:3pt 0;border-bottom:1px solid #f0ead8;display:flex;gap:8pt}
+  .ai-done{text-decoration:line-through;color:#aaa}
+  .badge{font-size:7.5pt;padding:1.5pt 6pt;border-radius:3pt;background:#f7f3eb;border:1px solid #ddd;margin-right:6pt;text-transform:uppercase;letter-spacing:.5pt}
+  @media print{body{padding:1cm}h1{font-size:18pt}}
+</style></head><body>
+<h1>MinutesLog</h1>
+<div class="meta">Exported ${new Date().toLocaleString()} · ${list.length} meeting${list.length!==1?'s':''}</div>
+${list.map(m => `
+<div class="meeting">
+  <div class="meeting-title"><span class="badge">${m.type||'other'}</span>${esc(m.title)}</div>
+  <div class="meeting-date">${fmtDateFull(m.date)}${m.time?' · '+fmtTime(m.time):''}${m.attendees?' · '+esc(m.attendees):''}</div>
+  ${m.notes?`<div class="meeting-notes">${esc(m.notes)}</div>`:''}
+  ${(m.actionItems||[]).length?`<div class="ai-list">${m.actionItems.map(ai=>`<div class="ai-item"><span>${ai.done?'☑':'☐'}</span><span class="${ai.done?'ai-done':''}">${esc(ai.text)}${ai.assignee?' → '+esc(ai.assignee):''}${ai.dueDate?' ('+ai.dueDate+')':''}</span></div>`).join('')}</div>`:''}
+</div>`).join('')}
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 600);
+}
+
+
 function openSidebar() {
     document.getElementById('sidebar').classList.add('open');
     document.getElementById('sidebarOverlay').classList.add('open');
@@ -386,6 +685,7 @@ function renderCard(m) {
     const dateStr   = new Date(m.date+'T00:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
     const timeStr   = m.time ? fmtTime(m.time) : '';
     const duration  = calcDuration(m.time, m.endTime);
+    const relTime   = relativeTime(m.date);
 
     // Progress bar for action items
     const progressHTML = ais.length > 0 ? (() => {
@@ -420,30 +720,33 @@ function renderCard(m) {
         </div>` : '';
 
     return `
-    <div class="meeting-card ${m.pinned?'pinned':''}" data-id="${m.id}">
-        <div class="card-header">
-            <div class="card-header-left">
-                <span class="type-badge ${typeCls}">${m.type||'other'}</span>
-                ${m.pinned ? '<span class="pin-dot" title="Pinned"><i class="fas fa-thumbtack"></i></span>' : ''}
-                ${duration ? `<span class="duration-chip"><i class="fas fa-hourglass-half"></i> ${duration}</span>` : ''}
+    <div class="meeting-card ${m.pinned?'pinned':''}" data-id="${m.id}" data-type="${m.type||'other'}">
+        <div class="card-body">
+            <div class="card-header">
+                <div class="card-header-left">
+                    <span class="type-badge ${typeCls}">${m.type||'other'}</span>
+                    ${m.pinned ? '<span class="pin-dot" title="Pinned"><i class="fas fa-thumbtack"></i></span>' : ''}
+                    ${duration ? `<span class="duration-chip"><i class="fas fa-hourglass-half"></i> ${duration}</span>` : ''}
+                </div>
+                <div class="card-actions">
+                    <button class="card-btn" onclick="togglePin(${m.id})" title="${m.pinned?'Unpin':'Pin'}"><i class="fas fa-thumbtack ${m.pinned?'active':''}"></i></button>
+                    <button class="card-btn" onclick="copyMeeting(${m.id})" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
+                    <button class="card-btn" onclick="editMeeting(${m.id})" title="Edit"><i class="fas fa-pencil-alt"></i></button>
+                    <button class="card-btn danger" onclick="deleteMeeting(${m.id})" title="Delete"><i class="fas fa-trash"></i></button>
+                </div>
             </div>
-            <div class="card-actions">
-                <button class="card-btn" onclick="togglePin(${m.id})" title="${m.pinned?'Unpin':'Pin'}"><i class="fas fa-thumbtack ${m.pinned?'active':''}"></i></button>
-                <button class="card-btn" onclick="copyMeeting(${m.id})" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
-                <button class="card-btn" onclick="editMeeting(${m.id})" title="Edit"><i class="fas fa-pencil-alt"></i></button>
-                <button class="card-btn danger" onclick="deleteMeeting(${m.id})" title="Delete"><i class="fas fa-trash"></i></button>
+            <h3 class="card-title">${esc(m.title)}</h3>
+            <div class="card-dateline">
+                <span><i class="fas fa-calendar-alt"></i>${dateStr}</span>
+                ${relTime ? `<span class="card-dateline-sep">·</span>${relTime}` : ''}
+                ${timeStr ? `<span class="card-dateline-sep">·</span><span><i class="fas fa-clock"></i>${timeStr}</span>` : ''}
+                ${m.attendees ? `<span class="card-dateline-sep">·</span><span class="dateline-attendees"><i class="fas fa-user-friends"></i>${esc(m.attendees)}</span>` : ''}
             </div>
+            ${tagsHTML ? `<div class="card-tags">${tagsHTML}</div>` : ''}
+            ${progressHTML}
+            ${notePreview}
+            ${aiList}
         </div>
-        <h3 class="card-title">${esc(m.title)}</h3>
-        <div class="card-meta">
-            <span><i class="fas fa-calendar-alt"></i> ${dateStr}</span>
-            ${timeStr ? `<span><i class="fas fa-clock"></i> ${timeStr}</span>` : ''}
-            ${m.attendees ? `<span><i class="fas fa-user-friends"></i> ${esc(m.attendees)}</span>` : ''}
-        </div>
-        ${tagsHTML ? `<div class="card-tags">${tagsHTML}</div>` : ''}
-        ${progressHTML}
-        ${notePreview}
-        ${aiList}
     </div>`;
 }
 
@@ -464,6 +767,7 @@ function renderActions() {
     if (actionFilter === 'open')    rows = rows.filter(r => !r.done);
     if (actionFilter === 'overdue') rows = rows.filter(r => r.overdue);
     if (actionFilter === 'done')    rows = rows.filter(r => r.done);
+    if (assigneeFilter) rows = rows.filter(r => r.assignee === assigneeFilter);
     if (searchQuery) rows = rows.filter(r =>
         r.text.toLowerCase().includes(searchQuery) ||
         (r.assignee||'').toLowerCase().includes(searchQuery) ||
@@ -475,6 +779,8 @@ function renderActions() {
         if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
         return new Date(b.meetingDate) - new Date(a.meetingDate);
     });
+
+    renderAssigneeFilterBar();
 
     if (rows.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class="fas fa-check-double"></i></div><h3>No action items here</h3><p>Action items you add to meetings will appear here</p></div>`;
@@ -496,7 +802,7 @@ function renderActions() {
                 <tr class="${r.done?'row-done':''} ${r.overdue?'row-overdue':''}">
                     <td><span class="ai-check-btn" onclick="toggleAI(${r.meetingId},${r.id})">${r.done?'<i class="fas fa-check-circle done-icon"></i>':'<i class="far fa-circle"></i>'}</span></td>
                     <td class="ai-cell-text">${esc(r.text)}</td>
-                    <td>${r.assignee ? `<span class="assignee-pill"><i class="fas fa-user"></i> ${esc(r.assignee)}</span>` : '<span class="empty-cell">—</span>'}</td>
+                    <td>${r.assignee ? `<span class="assignee-pill clickable-assignee" onclick="filterByAssignee('${esc(r.assignee)}')" title="Filter by ${esc(r.assignee)}"><i class="fas fa-user"></i> ${esc(r.assignee)}</span>` : '<span class="empty-cell">—</span>'}</td>
                     <td>${r.dueDate ? `<span class="due-pill ${r.overdue?'overdue':''}">${fmtDate(r.dueDate)}${r.overdue?' ⚠':''}</span>` : '<span class="empty-cell">—</span>'}</td>
                     <td><span class="meeting-ref" onclick="editMeeting(${r.meetingId})">${esc(r.meetingTitle)}</span></td>
                     <td><span class="status-pill ${r.done?'status-done':r.overdue?'status-overdue':'status-open'}">${r.done?'Done':r.overdue?'Overdue':'Open'}</span></td>
@@ -504,6 +810,12 @@ function renderActions() {
             </tbody>
         </table>`;
 }
+
+window.filterByAssignee = function(name) {
+    assigneeFilter = assigneeFilter === name ? '' : name;
+    renderAssigneeFilterBar();
+    renderActions();
+};
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 function updateStats() {
@@ -551,6 +863,8 @@ function openNewModal() {
     updateWordCount();
     setDefaultDateTime();
     openModal();
+    // Check for draft after modal opens
+    setTimeout(() => loadDraft(), 50);
 }
 
 function openModal() {
@@ -621,6 +935,7 @@ async function saveModal() {
     await saveData();
     render();
     closeModal();
+    clearDraft();
 }
 
 // ── Meeting Actions ───────────────────────────────────────────────────────────
@@ -901,7 +1216,75 @@ function exportMarkdown() {
     showToast('Markdown exported!', 'success');
 }
 
-async function importJSON(e) {
+function exportExcel() {
+    if (typeof XLSX === 'undefined') {
+        showToast('Excel library loading, try again…', 'error');
+        return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: Meetings ──
+    const meetRows = [['Title','Type','Date','Start','End','Duration','Attendees','Tags','Notes','Actions Total','Actions Done','Actions Overdue']];
+    const today0 = new Date(); today0.setHours(0,0,0,0);
+    meetings.forEach(m => {
+        const ais      = m.actionItems || [];
+        const done     = ais.filter(a => a.done).length;
+        const overdue  = ais.filter(a => !a.done && a.dueDate && new Date(a.dueDate+'T00:00:00') < today0).length;
+        const dur      = calcDuration(m.time, m.endTime) || '';
+        meetRows.push([
+            m.title, m.type||'other', m.date, m.time||'', m.endTime||'', dur,
+            m.attendees||'', (m.tags||[]).join(', '), m.notes||'',
+            ais.length, done, overdue
+        ]);
+    });
+    const ws1 = XLSX.utils.aoa_to_sheet(meetRows);
+    ws1['!cols'] = [32,12,12,8,8,10,24,20,50,8,8,8].map(w => ({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws1, 'Meetings');
+
+    // ── Sheet 2: Action Items ──
+    const aiRows = [['Action','Assignee','Due Date','Status','Meeting','Meeting Date']];
+    meetings.forEach(m => {
+        (m.actionItems||[]).forEach(ai => {
+            const overdue = !ai.done && ai.dueDate && new Date(ai.dueDate+'T00:00:00') < today0;
+            aiRows.push([
+                ai.text, ai.assignee||'', ai.dueDate||'',
+                ai.done ? 'Done' : overdue ? 'Overdue' : 'Open',
+                m.title, m.date
+            ]);
+        });
+    });
+    const ws2 = XLSX.utils.aoa_to_sheet(aiRows);
+    ws2['!cols'] = [40,18,12,10,32,12].map(w => ({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws2, 'Action Items');
+
+    // ── Sheet 3: Summary ──
+    const allTypes = ['standup','review','brainstorm','retrospective','demo','planning','other'];
+    const typeCounts = Object.fromEntries(allTypes.map(t => [t, 0]));
+    meetings.forEach(m => { typeCounts[m.type||'other'] = (typeCounts[m.type||'other']||0) + 1; });
+    const allAIs   = meetings.flatMap(m => m.actionItems||[]);
+    const summRows = [
+        ['MinutesLog Summary', ''],
+        ['Exported', new Date().toLocaleString()],
+        ['', ''],
+        ['Total Meetings', meetings.length],
+        ['Total Action Items', allAIs.length],
+        ['Done', allAIs.filter(a=>a.done).length],
+        ['Open', allAIs.filter(a=>!a.done).length],
+        ['Overdue', allAIs.filter(a=>!a.done&&a.dueDate&&new Date(a.dueDate+'T00:00:00')<today0).length],
+        ['', ''],
+        ['By Type', ''],
+        ...allTypes.map(t => [t.charAt(0).toUpperCase()+t.slice(1), typeCounts[t]||0])
+    ];
+    const ws3 = XLSX.utils.aoa_to_sheet(summRows);
+    ws3['!cols'] = [{wch:28},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Summary');
+
+    XLSX.writeFile(wb, `minuteslog-${today()}.xlsx`);
+    showToast('Excel exported! 3 sheets', 'success');
+}
+
+function importJSON(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -936,15 +1319,68 @@ function dl(blob, name) {
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
+const THEMES = {
+    dark:      { label: 'Amber Dark',    icon: '🟡' },
+    light:     { label: 'Amber Light',   icon: '☀️' },
+    purple:    { label: 'Deep Purple',   icon: '🟣' },
+    lavender:  { label: 'Lavender',      icon: '💜' },
+    burgundy:  { label: 'Burgundy',      icon: '🍷' },
+    teal:      { label: 'Midnight Teal', icon: '🩵' },
+    forest:    { label: 'Forest',        icon: '🌿' },
+};
+
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('ml-theme', theme);
-    const icon = document.querySelector('#themeBtn i');
-    if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    const btn = document.getElementById('themeBtn');
+    if (btn) btn.title = THEMES[theme]?.label || theme;
 }
+
 function toggleTheme() {
-    const cur = document.documentElement.getAttribute('data-theme') || 'dark';
-    applyTheme(cur === 'dark' ? 'light' : 'dark');
+    // cycle through themes
+    const keys = Object.keys(THEMES);
+    const cur  = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = keys[(keys.indexOf(cur) + 1) % keys.length];
+    applyTheme(next);
+    showToast(`Theme: ${THEMES[next].label}`, 'success');
+}
+
+function showThemePicker() {
+    const existing = document.getElementById('themePicker');
+    if (existing) { existing.remove(); return; }
+
+    const picker = document.createElement('div');
+    picker.id = 'themePicker';
+    picker.className = 'theme-picker';
+    picker.innerHTML = `
+        <div class="theme-picker-title">Choose Theme</div>
+        ${Object.entries(THEMES).map(([key, t]) => `
+            <button class="theme-option ${document.documentElement.getAttribute('data-theme') === key ? 'active' : ''}" data-theme="${key}">
+                <span class="theme-option-icon">${t.icon}</span>
+                <span class="theme-option-label">${t.label}</span>
+                ${document.documentElement.getAttribute('data-theme') === key ? '<i class="fas fa-check theme-check"></i>' : ''}
+            </button>`).join('')}
+    `;
+    picker.querySelectorAll('.theme-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            applyTheme(btn.dataset.theme);
+            picker.remove();
+            showToast(`${THEMES[btn.dataset.theme].icon} ${THEMES[btn.dataset.theme].label}`, 'success');
+        });
+    });
+
+    document.getElementById('themeBtn').parentNode.style.position = 'relative';
+    document.getElementById('themeBtn').after(picker);
+
+    // close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', function closePicker(e) {
+            if (!picker.contains(e.target) && e.target.id !== 'themeBtn') {
+                picker.remove();
+                document.removeEventListener('click', closePicker);
+            }
+        });
+    }, 10);
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
