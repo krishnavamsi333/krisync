@@ -14,37 +14,37 @@
 
     <!-- ── MOBILE TOPBAR ─────────────────────────────────────────────────── -->
     <div class="mobile-topbar">
-        <button id="mobileMenuBtn" class="mobile-menu-btn"><i class="fas fa-bars"></i></button>
+        <button id="mobileMenuBtn" class="mobile-menu-btn" aria-label="Toggle menu"><i class="fas fa-bars"></i></button>
         <span class="mobile-brand">MinutesLog</span>
-        <button id="mobileNewBtn" class="primary-btn" style="padding:7px 12px;font-size:11px;"><i class="fas fa-plus"></i> New</button>
+        <button id="mobileNewBtn" class="primary-btn" style="padding:7px 12px;font-size:11px;" aria-label="New meeting"><i class="fas fa-plus"></i> New</button>
     </div>
 
     <!-- ── SIDEBAR OVERLAY ───────────────────────────────────────────────── -->
-    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+    <div id="sidebarOverlay" class="sidebar-overlay" role="presentation"></div>
 
     <!-- ── SIDEBAR ────────────────────────────────────────────────────────── -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
         <div class="sidebar-brand">
-            <div class="brand-icon"><i class="fas fa-book-open"></i></div>
+            <div class="brand-icon"><i class="fas fa-book-open" aria-hidden="true"></i></div>
             <div class="brand-text">
                 <span class="brand-name">MinutesLog</span>
                 <span class="brand-tagline">Meeting Records</span>
             </div>
-            <button id="sidebarCloseBtn" class="sidebar-close-btn"><i class="fas fa-times"></i></button>
+            <button id="sidebarCloseBtn" class="sidebar-close-btn" aria-label="Close menu"><i class="fas fa-times"></i></button>
         </div>
 
-        <div class="sidebar-stats">
+        <div class="sidebar-stats" role="region" aria-label="Statistics">
             <div class="sstat"><span id="ss-total">0</span><label>Meetings</label></div>
             <div class="sstat"><span id="ss-actions" class="accent-warn">0</span><label>Open Actions</label></div>
             <div class="sstat"><span id="ss-overdue" class="accent-danger">0</span><label>Overdue</label></div>
         </div>
 
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav" aria-label="View options">
             <div class="nav-section-label">View</div>
-            <button class="nav-btn active" data-view="all"><i class="fas fa-list"></i> All Meetings</button>
-            <button class="nav-btn" data-view="pinned"><i class="fas fa-thumbtack"></i> Pinned</button>
-            <button class="nav-btn" data-view="thisweek"><i class="fas fa-calendar-week"></i> This Week</button>
-            <button class="nav-btn" data-view="actions"><i class="fas fa-check-square"></i> Action Items</button>
+            <button class="nav-btn active" data-view="all"><i class="fas fa-list" aria-hidden="true"></i> All Meetings</button>
+            <button class="nav-btn" data-view="pinned"><i class="fas fa-thumbtack" aria-hidden="true"></i> Pinned</button>
+            <button class="nav-btn" data-view="thisweek"><i class="fas fa-calendar-week" aria-hidden="true"></i> This Week</button>
+            <button class="nav-btn" data-view="actions"><i class="fas fa-check-square" aria-hidden="true"></i> Action Items</button>
 
             <div class="nav-section-label" style="margin-top:20px;">Type</div>
             <button class="nav-btn type-filter" data-type="all"><span class="type-dot dot-all"></span> All Types</button>
@@ -58,40 +58,39 @@
         </nav>
 
         <div class="sidebar-footer">
-            <button class="sidebar-action-btn" id="exportJsonBtn"><i class="fas fa-download"></i> Export JSON</button>
-            <button class="sidebar-action-btn" id="exportMdBtn"><i class="fab fa-markdown"></i> Markdown</button>
-            <button class="sidebar-action-btn" id="exportXlsxBtn"><i class="fas fa-file-excel"></i> Excel (.xlsx)</button>
-            <label class="sidebar-action-btn"><i class="fas fa-upload"></i> Import<input type="file" id="importFileInput" accept=".json" style="display:none;"></label>
-            <button class="sidebar-action-btn" id="shortcutsBtn"><i class="fas fa-keyboard"></i> Shortcuts</button>
+            <button class="sidebar-action-btn" id="exportJsonBtn" title="Export as JSON"><i class="fas fa-download"></i> Export JSON</button>
+            <button class="sidebar-action-btn" id="exportMdBtn" title="Export as Markdown"><i class="fab fa-markdown"></i> Markdown</button>
+            <button class="sidebar-action-btn" id="exportXlsxBtn" title="Export as Excel"><i class="fas fa-file-excel"></i> Excel (.xlsx)</button>
+            <label class="sidebar-action-btn" title="Import JSON file"><i class="fas fa-upload"></i> Import<input type="file" id="importFileInput" accept=".json" style="display:none;" aria-label="Import file"></label>
+            <button class="sidebar-action-btn" id="shortcutsBtn" title="Show keyboard shortcuts"><i class="fas fa-keyboard"></i> Shortcuts</button>
             <button class="sidebar-action-btn" id="clearApiKeyBtn" title="Clear saved Anthropic API key"><i class="fas fa-key"></i> Clear API Key</button>
-            <button class="sidebar-action-btn" id="printBtn"><i class="fas fa-print"></i> Print / PDF</button>
-            <button class="sidebar-action-btn danger" id="clearAllBtn"><i class="fas fa-trash"></i> Clear All</button>
+            <button class="sidebar-action-btn" id="printBtn" title="Print or save as PDF"><i class="fas fa-print"></i> Print / PDF</button>
+            <button class="sidebar-action-btn danger" id="clearAllBtn" title="Delete all data permanently"><i class="fas fa-trash"></i> Clear All</button>
         </div>
     </aside>
 
     <!-- ── MAIN ───────────────────────────────────────────────────────────── -->
-    <main class="main-content">
+    <main class="main-content" role="main">
 
         <div class="topbar">
             <div class="topbar-left">
                 <div class="search-wrap">
-                    <i class="fas fa-search"></i>
+                    <i class="fas fa-search" aria-hidden="true"></i>
                     <input type="text" id="searchInput" placeholder="Search meetings, notes, actions… (/)">
-                    <button id="clearSearch" class="clear-btn" style="display:none;"><i class="fas fa-times"></i></button>
+                    <button id="clearSearch" class="clear-btn" style="display:none;" aria-label="Clear search"><i class="fas fa-times"></i></button>
                 </div>
             </div>
             <div class="topbar-right">
-                <div id="syncStatus" class="sync-status" title="Sync status"></div>
-                <button id="themeBtn" class="icon-btn" title="Change theme"><i class="fas fa-palette"></i></button>
-                <button id="newMeetingBtn" class="primary-btn"><i class="fas fa-plus"></i> New Meeting</button>
+                <div id="syncStatus" class="sync-status" role="status" aria-label="Sync status" title="Sync status"></div>
+                <button id="themeBtn" class="icon-btn" title="Change theme" aria-label="Theme picker"><i class="fas fa-palette"></i></button>
+                <button id="newMeetingBtn" class="primary-btn" aria-label="Create new meeting"><i class="fas fa-plus"></i> New Meeting</button>
             </div>
         </div>
 
-
         <!-- ── QUICK ADD BAR ──────────────────────────────────────────────── -->
-        <div class=quick-add-bar id=quickAddBar>
-            <div class=quick-add-inner>
-                <select id=qaType class=qa-type-select>
+        <div class="quick-add-bar" id="quickAddBar">
+            <div class="quick-add-inner">
+                <select id="qaType" class="qa-type-select" aria-label="Meeting type">
                     <option value="standup">⚡ Standup</option>
                     <option value="review">📋 Review</option>
                     <option value="brainstorm">💡 Brainstorm</option>
@@ -100,64 +99,65 @@
                     <option value="demo">🎯 Demo</option>
                     <option value="other">📝 Other</option>
                 </select>
-                <input type="text" id="qaTitle" class="qa-input" placeholder="Quick log a meeting… press Enter">
-                <button id="qaSubmit" class="qa-submit-btn"><i class="fas fa-arrow-right"></i></button>
-                <button id="qaExpand" class="qa-expand-btn" title="Full editor"><i class="fas fa-expand-alt"></i></button>
+                <input type="text" id="qaTitle" class="qa-input" placeholder="Quick log a meeting… press Enter" aria-label="Meeting title">
+                <button id="qaSubmit" class="qa-submit-btn" aria-label="Submit"><i class="fas fa-arrow-right"></i></button>
+                <button id="qaExpand" class="qa-expand-btn" title="Full editor" aria-label="Open full editor"><i class="fas fa-expand-alt"></i></button>
             </div>
         </div>
+
         <!-- View: All Meetings / Pinned / This Week -->
         <div id="view-meetings" class="view active">
             <div class="view-header">
                 <h1 class="view-title" id="viewTitle">All Meetings</h1>
                 <div class="sort-group">
-                    <label>Sort:</label>
-                    <select id="sortSelect">
+                    <label for="sortSelect">Sort:</label>
+                    <select id="sortSelect" aria-label="Sort meetings">
                         <option value="date-desc">Newest first</option>
                         <option value="date-asc">Oldest first</option>
                         <option value="title">Title A–Z</option>
                     </select>
                 </div>
             </div>
-            <div id="meetingsList" class="meetings-grid"></div>
+            <div id="meetingsList" class="meetings-grid" role="region" aria-label="Meetings list"></div>
         </div>
 
         <!-- View: Action Items -->
         <div id="view-actions" class="view">
             <div class="view-header">
                 <h1 class="view-title">Action Items</h1>
-                <div class="actions-filter-group">
+                <div class="actions-filter-group" role="group" aria-label="Filter actions">
                     <button class="chip-btn active" data-afilter="open">Open</button>
                     <button class="chip-btn" data-afilter="overdue">Overdue</button>
                     <button class="chip-btn" data-afilter="done">Done</button>
                     <button class="chip-btn" data-afilter="all">All</button>
                 </div>
             </div>
-            <div id="assigneeFilterBar" class="assignee-filter-bar" style="display:none;"></div>
-            <div id="actionsList" class="actions-table-wrap"></div>
+            <div id="assigneeFilterBar" class="assignee-filter-bar" style="display:none;" role="group" aria-label="Filter by assignee"></div>
+            <div id="actionsList" class="actions-table-wrap" role="region" aria-label="Action items table"></div>
         </div>
 
     </main>
 </div>
 
 <!-- ── MEETING MODAL ──────────────────────────────────────────────────────── -->
-<div id="modalOverlay" class="modal-overlay" style="display:none;">
+<div id="modalOverlay" class="modal-overlay" style="display:none;" role="dialog" aria-hidden="true" aria-labelledby="modalTitle">
     <div class="modal" id="meetingModal">
         <div class="modal-header">
             <h2 id="modalTitle">New Meeting</h2>
             <div class="modal-header-actions">
-                <button class="icon-btn-sm" id="aiSummarizeBtn" title="AI: Summarize & extract actions from notes"><i class="fas fa-magic"></i> AI Extract</button>
-                <button class="icon-btn-sm" id="duplicateBtn" title="Save as template / duplicate" style="display:none;"><i class="fas fa-copy"></i> Duplicate</button>
-                <button class="modal-close" id="modalCloseBtn"><i class="fas fa-times"></i></button>
+                <button class="icon-btn-sm" id="aiSummarizeBtn" title="AI: Summarize & extract actions from notes" aria-label="AI Extract"><i class="fas fa-magic"></i> AI Extract</button>
+                <button class="icon-btn-sm" id="duplicateBtn" title="Save as template / duplicate" style="display:none;" aria-label="Duplicate meeting"><i class="fas fa-copy"></i> Duplicate</button>
+                <button class="modal-close" id="modalCloseBtn" aria-label="Close modal"><i class="fas fa-times"></i></button>
             </div>
         </div>
         <div class="modal-body">
             <div class="field-row">
                 <div class="field field-grow">
-                    <label>Meeting Title <span class="req">*</span></label>
+                    <label for="mTitle">Meeting Title <span class="req">*</span></label>
                     <input type="text" id="mTitle" placeholder="e.g. Sprint Review Week 12">
                 </div>
                 <div class="field">
-                    <label>Type</label>
+                    <label for="mType">Type</label>
                     <select id="mType">
                         <option value="standup">Standup</option>
                         <option value="review">Review</option>
@@ -171,38 +171,38 @@
             </div>
             <div class="field-row">
                 <div class="field">
-                    <label><i class="fas fa-calendar"></i> Date</label>
+                    <label for="mDate"><i class="fas fa-calendar" aria-hidden="true"></i> Date</label>
                     <input type="date" id="mDate">
                 </div>
                 <div class="field">
-                    <label><i class="fas fa-clock"></i> Start Time</label>
+                    <label for="mTime"><i class="fas fa-clock" aria-hidden="true"></i> Start Time</label>
                     <input type="time" id="mTime">
                 </div>
                 <div class="field">
-                    <label><i class="fas fa-clock"></i> End Time</label>
+                    <label for="mEndTime"><i class="fas fa-clock" aria-hidden="true"></i> End Time</label>
                     <input type="time" id="mEndTime">
                 </div>
                 <div class="field field-grow">
-                    <label><i class="fas fa-user-friends"></i> Attendees</label>
+                    <label for="mAttendees"><i class="fas fa-user-friends" aria-hidden="true"></i> Attendees</label>
                     <input type="text" id="mAttendees" placeholder="Ravi, Priya, Alex…">
                 </div>
                 <div class="field field-grow">
-                    <label><i class="fas fa-tags"></i> Tags</label>
+                    <label for="mTags"><i class="fas fa-tags" aria-hidden="true"></i> Tags</label>
                     <input type="text" id="mTags" placeholder="ros2, sprint, hardware…">
                 </div>
             </div>
             <div class="modal-two-col">
                 <div class="modal-col">
                     <div class="col-label-row">
-                        <label class="col-label"><i class="fas fa-sticky-note"></i> Notes</label>
+                        <label for="mNotes" class="col-label"><i class="fas fa-sticky-note" aria-hidden="true"></i> Notes</label>
                         <span id="wordCountBadge" class="word-count-badge">0 words</span>
                     </div>
                     <div class="template-chips" id="templateChips"><span class="tpl-label">Templates:</span><button type="button" class="tpl-btn" data-tpl="standup">Standup</button><button type="button" class="tpl-btn" data-tpl="review">Review</button><button type="button" class="tpl-btn" data-tpl="retro">Retro</button><button type="button" class="tpl-btn" data-tpl="planning">Planning</button></div>
                     <textarea id="mNotes" placeholder="Key decisions, discussion points, context…&#10;&#10;Tip: Click 'AI Extract' to auto-parse action items from raw notes!" rows="9"></textarea>
                 </div>
                 <div class="modal-col">
-                    <label class="col-label"><i class="fas fa-check-square"></i> Action Items</label>
-                    <div id="mActionItems" class="modal-action-items"></div>
+                    <label class="col-label"><i class="fas fa-check-square" aria-hidden="true"></i> Action Items</label>
+                    <div id="mActionItems" class="modal-action-items" role="region" aria-label="Action items"></div>
                     <button type="button" id="addAIBtn" class="add-ai-btn"><i class="fas fa-plus"></i> Add Action Item</button>
                 </div>
             </div>
@@ -216,7 +216,7 @@
 </div>
 
 <!-- ── AI LOADING OVERLAY ─────────────────────────────────────────────────── -->
-<div id="aiLoadingOverlay" class="ai-loading-overlay" style="display:none;">
+<div id="aiLoadingOverlay" class="ai-loading-overlay" style="display:none;" role="status" aria-label="Loading">
     <div class="ai-loading-box">
         <div class="ai-spinner"></div>
         <p>Extracting actions & summarizing…</p>
@@ -224,11 +224,11 @@
 </div>
 
 <!-- ── SHORTCUTS MODAL ────────────────────────────────────────────────────── -->
-<div id="shortcutsModal" class="shortcuts-modal" style="display:none;">
+<div id="shortcutsModal" class="shortcuts-modal" style="display:none;" role="dialog" aria-labelledby="shortcutsTitle">
     <div class="shortcuts-box">
         <div class="shortcuts-header">
-            <h3><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h3>
-            <button id="closeShortcutsBtn" class="modal-close"><i class="fas fa-times"></i></button>
+            <h3 id="shortcutsTitle"><i class="fas fa-keyboard" aria-hidden="true"></i> Keyboard Shortcuts</h3>
+            <button id="closeShortcutsBtn" class="modal-close" aria-label="Close shortcuts"><i class="fas fa-times"></i></button>
         </div>
         <div class="shortcuts-grid">
             <div class="shortcut-row"><kbd>N</kbd> <span>New meeting</span></div>
@@ -247,9 +247,9 @@
 </div>
 
 <!-- ── CONFETTI CANVAS ────────────────────────────────────────────────────── -->
-<canvas id="confettiCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;display:none;"></canvas>
+<canvas id="confettiCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;display:none;" aria-hidden="true"></canvas>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Firebase CDN -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>

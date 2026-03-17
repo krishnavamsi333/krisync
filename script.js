@@ -16,13 +16,146 @@ let currentType   = 'all';
 let currentSort   = 'date-desc';
 let searchQuery   = '';
 let actionFilter  = 'open';
-let editingId     = null;
-let formAIs       = [];
 let isSaving      = false;
 let unsubscribeMeetings = null;
 
 const ML_COLLECTION = 'minuteslog';
 const ML_LEGACY_DOC = 'meetings';
+
+// ── ID Generation (FIX #1) ────────────────────────────────────────────────────
+function newId() {
+    // Generates unique ID: timestamp + random string
+    // e.g., "1710705612345fxkq9w2"
+    return String(Date.now() + Math.random().toString(36).slice(2, 9));
+}
+
+// ── Form State Singleton (FIX #3) ─────────────────────────────────────────────
+const FormState = {
+    _data: {
+        title: '',
+        type: 'standup',
+        date: '',
+        time: '',
+        endTime: '',
+        attendees: '',
+        tags: [],
+        notes: '',
+        actionItems: [],
+        editingId: null,
+        createdAt: null
+    },
+
+    reset() {
+        const now = new Date();
+        this._data = {
+            title: '',
+            type: 'standup',
+            date: now.toISOString().split('T')[0],
+            time: now.toTimeString().slice(0,5),
+            endTime: '',
+            attendees: '',
+            tags: [],
+            notes: '',
+            actionItems: [],
+            editingId: null,
+            createdAt: null
+        };
+    },
+
+    setEditingId(id) {
+        this._data.editingId = id;
+    },
+
+    getEditingId() {
+        return this._data.editingId;
+    },
+
+    addActionItem(text = '', assignee = '', dueDate = '') {
+        const item = {
+            id: newId(),
+            text: text.trim(),
+            assignee: assignee.trim(),
+            dueDate,
+            done: false
+        };
+        this._data.actionItems.push(item);
+        return item;
+    },
+
+    removeActionItem(id) {
+        this._data.actionItems = this._data.actionItems.filter(ai => ai.id !== id);
+    },
+
+    updateActionItem(id, updates) {
+        const ai = this._data.actionItems.find(x => x.id === id);
+        if (ai) {
+            Object.assign(ai, updates);
+        }
+    },
+
+    getActionItems() {
+        return JSON.parse(JSON.stringify(this._data.actionItems));
+    },
+
+    clearActionItems() {
+        this._data.actionItems = [];
+    },
+
+    setField(field, value) {
+        if (field in this._data) {
+            this._data[field] = value;
+        }
+    },
+
+    getField(field) {
+        return this._data[field];
+    },
+
+    getData() {
+        return JSON.parse(JSON.stringify(this._data));
+    },
+
+    loadFromMeeting(meeting) {
+        this._data = {
+            title: meeting.title || '',
+            type: meeting.type || 'standup',
+            date: meeting.date || '',
+            time: meeting.time || '',
+            endTime: meeting.endTime || '',
+            attendees: meeting.attendees || '',
+            tags: JSON.parse(JSON.stringify(meeting.tags || [])),
+            notes: meeting.notes || '',
+            actionItems: JSON.parse(JSON.stringify(meeting.actionItems || [])),
+            editingId: meeting.id,
+            createdAt: meeting.createdAt
+        };
+    },
+
+    saveDraft() {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(this._data));
+    },
+
+    loadDraft() {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return false;
+        try {
+            const d = JSON.parse(raw);
+            if (!d.title && !d.notes) return false;
+            if (!confirm('Restore unsaved draft?')) {
+                this.clearDraft();
+                return false;
+            }
+            this._data = d;
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
+    clearDraft() {
+        localStorage.removeItem(DRAFT_KEY);
+    }
+};
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -322,6 +455,50 @@ function bindEvents() {
     document.getElementById('sidebarCloseBtn')?.addEventListener('click', closeSidebar);
     document.getElementById('sidebarOverlay')?.addEventListener('click', closeSidebar);
 
+    // ── Event Delegation for Card Actions (FIX #2) ────────────────────────────
+    // All card button actions handled here, not via onclick
+    document.getElementById('meetingsList').addEventListener('click', e => {
+        // Handle main card action buttons
+        const btn = e.target.closest('.card-btn');
+        if (btn) {
+            const card = btn.closest('.meeting-card');
+            if (!card) return;
+            
+            const meetingId = card.dataset.id; // ← String, not parseInt!
+            const action = btn.dataset.action;
+            
+            switch(action) {
+                case 'pin':
+                    togglePin(meetingId);
+                    break;
+                case 'copy':
+                    copyMeeting(meetingId);
+                    break;
+                case 'edit':
+                    editMeeting(meetingId);
+                    break;
+                case 'delete':
+                    if (confirm('Delete this meeting?')) {
+                        deleteMeeting(meetingId);
+                    }
+                    break;
+            }
+            return;
+        }
+        
+        // Handle action item checkboxes
+        const aiCheck = e.target.closest('.card-ai-check');
+        if (aiCheck) {
+            const aiItem = aiCheck.closest('.card-ai');
+            if (!aiItem) return;
+            
+            const meetingId = aiItem.dataset.meetingId; // ← String, not parseInt!
+            const aiId = aiItem.dataset.aiId;
+            
+            toggleAI(meetingId, aiId);
+        }
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', e => {
         const tag = document.activeElement.tagName.toLowerCase();
@@ -373,7 +550,9 @@ function initQuickAdd() {
         const type = document.getElementById('qaType').value;
         const now  = new Date();
         const meeting = {
-            id: Date.now(), pinned: false, createdAt: now.toISOString(),
+            id: newId(), 
+            pinned: false, 
+            createdAt: now.toISOString(),
             title, type,
             date:  now.toISOString().split('T')[0],
             time:  now.toTimeString().slice(0,5),
@@ -406,51 +585,12 @@ function initQuickAdd() {
 
 // ── Draft Autosave ─────────────────────────────────────────────────────────────
 const DRAFT_KEY = 'ml-draft';
-function saveDraft() {
-    const draft = {
-        title:     document.getElementById('mTitle').value,
-        type:      document.getElementById('mType').value,
-        date:      document.getElementById('mDate').value,
-        time:      document.getElementById('mTime').value,
-        endTime:   document.getElementById('mEndTime').value,
-        attendees: document.getElementById('mAttendees').value,
-        tags:      document.getElementById('mTags').value,
-        notes:     document.getElementById('mNotes').value,
-        formAIs:   JSON.parse(JSON.stringify(formAIs)),
-        editingId
-    };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-}
-function loadDraft() {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return false;
-    try {
-        const d = JSON.parse(raw);
-        if (!d.title && !d.notes) return false;
-        if (!confirm('Restore unsaved draft?')) { clearDraft(); return false; }
-        document.getElementById('mTitle').value     = d.title || '';
-        document.getElementById('mType').value      = d.type  || 'standup';
-        document.getElementById('mDate').value      = d.date  || '';
-        document.getElementById('mTime').value      = d.time  || '';
-        document.getElementById('mEndTime').value   = d.endTime || '';
-        document.getElementById('mAttendees').value = d.attendees || '';
-        document.getElementById('mTags').value      = d.tags  || '';
-        document.getElementById('mNotes').value     = d.notes || '';
-        editingId = d.editingId || null;
-        formAIs   = d.formAIs  || [];
-        const container = document.getElementById('mActionItems');
-        container.innerHTML = '';
-        formAIs.forEach(ai => addAIRow(ai));
-        updateWordCount();
-        return true;
-    } catch { return false; }
-}
-function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+
 function initDraftAutosave() {
     const fields = ['mTitle','mType','mDate','mTime','mEndTime','mAttendees','mTags','mNotes'];
     fields.forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener('input', saveDraft);
+        if (el) el.addEventListener('input', () => FormState.saveDraft());
     });
 }
 
@@ -461,6 +601,7 @@ const TEMPLATES = {
     retro:   `What went well:\n- \n\nWhat didn't go well:\n- \n\nWhat to improve:\n- \n\nAction items agreed:\n- `,
     planning: `Sprint goal:\n\nStories / tasks:\n- \n\nCapacity:\n\nRisks:\n- \n\nDefinition of done:\n- `
 };
+
 function initTemplateChips() {
     document.querySelectorAll('.tpl-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -471,7 +612,7 @@ function initTemplateChips() {
             area.value = tpl;
             updateWordCount();
             area.focus();
-            saveDraft();
+            FormState.saveDraft();
         });
     });
 }
@@ -491,6 +632,7 @@ function relativeTime(dateStr) {
 
 // ── Assignee Filter ────────────────────────────────────────────────────────────
 let assigneeFilter = '';
+
 function renderAssigneeFilterBar() {
     const bar = document.getElementById('assigneeFilterBar');
     if (!bar) return;
@@ -558,11 +700,11 @@ ${list.map(m => `
     setTimeout(() => w.print(), 600);
 }
 
-
 function openSidebar() {
     document.getElementById('sidebar').classList.add('open');
     document.getElementById('sidebarOverlay').classList.add('open');
 }
+
 function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarOverlay').classList.remove('open');
@@ -708,8 +850,8 @@ function renderCard(m) {
         <div class="card-ai-list">
             ${ais.map(ai => {
                 const aiOv = !ai.done && ai.dueDate && new Date(ai.dueDate+'T00:00:00') < new Date();
-                return `<div class="card-ai ${ai.done?'done':''} ${aiOv?'overdue':''}">
-                    <span class="card-ai-check" onclick="toggleAI(${m.id},${ai.id})">
+                return `<div class="card-ai ${ai.done?'done':''} ${aiOv?'overdue':''}" data-ai-id="${ai.id}" data-meeting-id="${m.id}">
+                    <span class="card-ai-check" data-action="toggle-ai">
                         ${ai.done ? '<i class="fas fa-check-circle"></i>' : '<i class="far fa-circle"></i>'}
                     </span>
                     <span class="card-ai-text">${esc(ai.text)}</span>
@@ -729,10 +871,10 @@ function renderCard(m) {
                     ${duration ? `<span class="duration-chip"><i class="fas fa-hourglass-half"></i> ${duration}</span>` : ''}
                 </div>
                 <div class="card-actions">
-                    <button class="card-btn" onclick="togglePin(${m.id})" title="${m.pinned?'Unpin':'Pin'}"><i class="fas fa-thumbtack ${m.pinned?'active':''}"></i></button>
-                    <button class="card-btn" onclick="copyMeeting(${m.id})" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
-                    <button class="card-btn" onclick="editMeeting(${m.id})" title="Edit"><i class="fas fa-pencil-alt"></i></button>
-                    <button class="card-btn danger" onclick="deleteMeeting(${m.id})" title="Delete"><i class="fas fa-trash"></i></button>
+                    <button class="card-btn" data-action="pin" title="${m.pinned?'Unpin':'Pin'}"><i class="fas fa-thumbtack ${m.pinned?'active':''}"></i></button>
+                    <button class="card-btn" data-action="copy" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
+                    <button class="card-btn" data-action="edit" title="Edit"><i class="fas fa-pencil-alt"></i></button>
+                    <button class="card-btn danger" data-action="delete" title="Delete"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
             <h3 class="card-title">${esc(m.title)}</h3>
@@ -800,7 +942,7 @@ function renderActions() {
             <tbody>
                 ${rows.map(r => `
                 <tr class="${r.done?'row-done':''} ${r.overdue?'row-overdue':''}">
-                    <td><span class="ai-check-btn" onclick="toggleAI(${r.meetingId},${r.id})">${r.done?'<i class="fas fa-check-circle done-icon"></i>':'<i class="far fa-circle"></i>'}</span></td>
+                    <td><span class="ai-check-btn" onclick="toggleAI(${r.meetingId},'${r.id}')">${r.done?'<i class="fas fa-check-circle done-icon"></i>':'<i class="far fa-circle"></i>'}</span></td>
                     <td class="ai-cell-text">${esc(r.text)}</td>
                     <td>${r.assignee ? `<span class="assignee-pill clickable-assignee" onclick="filterByAssignee('${esc(r.assignee)}')" title="Filter by ${esc(r.assignee)}"><i class="fas fa-user"></i> ${esc(r.assignee)}</span>` : '<span class="empty-cell">—</span>'}</td>
                     <td>${r.dueDate ? `<span class="due-pill ${r.overdue?'overdue':''}">${fmtDate(r.dueDate)}${r.overdue?' ⚠':''}</span>` : '<span class="empty-cell">—</span>'}</td>
@@ -850,21 +992,36 @@ function updateWordCount() {
 }
 
 function openNewModal() {
-    editingId = null;
-    formAIs   = [];
-    document.getElementById('modalTitle').textContent   = 'New Meeting';
-    document.getElementById('mTitle').value             = '';
-    document.getElementById('mType').value              = 'standup';
-    document.getElementById('mNotes').value             = '';
-    document.getElementById('mAttendees').value         = '';
-    document.getElementById('mTags').value              = '';
-    document.getElementById('mActionItems').innerHTML   = '';
+    FormState.reset();
+    
+    document.getElementById('modalTitle').textContent = 'New Meeting';
+    document.getElementById('mTitle').value = '';
+    document.getElementById('mType').value = 'standup';
+    document.getElementById('mNotes').value = '';
+    document.getElementById('mAttendees').value = '';
+    document.getElementById('mTags').value = '';
+    document.getElementById('mActionItems').innerHTML = '';
     document.getElementById('duplicateBtn').style.display = 'none';
+    
     updateWordCount();
     setDefaultDateTime();
     openModal();
+    
     // Check for draft after modal opens
-    setTimeout(() => loadDraft(), 50);
+    setTimeout(() => {
+        if (FormState.loadDraft()) {
+            document.getElementById('mTitle').value = FormState.getField('title');
+            document.getElementById('mType').value = FormState.getField('type');
+            document.getElementById('mDate').value = FormState.getField('date');
+            document.getElementById('mTime').value = FormState.getField('time');
+            document.getElementById('mEndTime').value = FormState.getField('endTime');
+            document.getElementById('mAttendees').value = FormState.getField('attendees');
+            document.getElementById('mTags').value = FormState.getField('tags').join(', ');
+            document.getElementById('mNotes').value = FormState.getField('notes');
+            FormState.getActionItems().forEach(ai => addAIRow(ai));
+            updateWordCount();
+        }
+    }, 50);
 }
 
 function openModal() {
@@ -879,12 +1036,13 @@ function closeModal() {
 }
 
 function addAIRow(existing = null) {
-    const item = existing || { id: Date.now() + Math.random(), text: '', assignee: '', dueDate: '', done: false };
-    if (!existing) formAIs.push(item);
+    const item = existing || FormState.addActionItem('');
 
     const container = document.getElementById('mActionItems');
     const row = document.createElement('div');
     row.className = 'mai-row';
+    row.dataset.aiId = item.id;
+    
     row.innerHTML = `
         <input type="checkbox" class="mai-check" ${item.done?'checked':''}>
         <input type="text"  class="mai-text"     placeholder="Action item…"  value="${esc(item.text)}">
@@ -892,12 +1050,23 @@ function addAIRow(existing = null) {
         <input type="date"  class="mai-date"                                  value="${item.dueDate||''}">
         <button type="button" class="mai-remove"><i class="fas fa-times"></i></button>`;
 
-    row.querySelector('.mai-check').addEventListener('change',   e => { item.done     = e.target.checked; });
-    row.querySelector('.mai-text').addEventListener('input',     e => { item.text     = e.target.value;   });
-    row.querySelector('.mai-assignee').addEventListener('input', e => { item.assignee = e.target.value;   });
-    row.querySelector('.mai-date').addEventListener('change',    e => { item.dueDate  = e.target.value;   });
-    row.querySelector('.mai-remove').addEventListener('click',   () => {
-        formAIs = formAIs.filter(x => x !== item);
+    row.querySelector('.mai-check').addEventListener('change', e => {
+        FormState.updateActionItem(item.id, { done: e.target.checked });
+    });
+    row.querySelector('.mai-text').addEventListener('input', e => {
+        FormState.updateActionItem(item.id, { text: e.target.value });
+        FormState.saveDraft();
+    });
+    row.querySelector('.mai-assignee').addEventListener('input', e => {
+        FormState.updateActionItem(item.id, { assignee: e.target.value });
+        FormState.saveDraft();
+    });
+    row.querySelector('.mai-date').addEventListener('change', e => {
+        FormState.updateActionItem(item.id, { dueDate: e.target.value });
+        FormState.saveDraft();
+    });
+    row.querySelector('.mai-remove').addEventListener('click', () => {
+        FormState.removeActionItem(item.id);
         row.remove();
     });
 
@@ -920,51 +1089,51 @@ async function saveModal() {
         attendees:   document.getElementById('mAttendees').value.trim(),
         tags:        document.getElementById('mTags').value.split(',').map(t=>t.trim()).filter(Boolean),
         notes:       document.getElementById('mNotes').value.trim(),
-        actionItems: formAIs.filter(ai => ai.text.trim()),
+        actionItems: FormState.getActionItems().filter(ai => ai.text.trim()),
     };
 
+    const editingId = FormState.getEditingId();
     if (editingId !== null) {
         const idx = meetings.findIndex(m => m.id === editingId);
         if (idx !== -1) meetings[idx] = { ...meetings[idx], ...data };
         showToast('Meeting updated!', 'success');
     } else {
-        meetings.unshift({ id: Date.now(), pinned: false, createdAt: new Date().toISOString(), ...data });
+        meetings.unshift({ id: newId(), pinned: false, createdAt: new Date().toISOString(), ...data });
         showToast('Meeting saved!', 'success');
     }
 
     await saveData();
     render();
     closeModal();
-    clearDraft();
+    FormState.clearDraft();
 }
 
 // ── Meeting Actions ───────────────────────────────────────────────────────────
 window.editMeeting = function(id) {
     const m = meetings.find(x => x.id === id);
     if (!m) return;
-    editingId = id;
-    formAIs   = JSON.parse(JSON.stringify(m.actionItems || []));
+    
+    FormState.loadFromMeeting(m);
 
     document.getElementById('modalTitle').textContent = 'Edit Meeting';
-    document.getElementById('mTitle').value           = m.title;
-    document.getElementById('mType').value            = m.type || 'other';
-    document.getElementById('mDate').value            = m.date;
-    document.getElementById('mTime').value            = m.time || '';
-    document.getElementById('mEndTime').value         = m.endTime || '';
-    document.getElementById('mAttendees').value       = m.attendees || '';
-    document.getElementById('mTags').value            = (m.tags||[]).join(', ');
-    document.getElementById('mNotes').value           = m.notes || '';
+    document.getElementById('mTitle').value           = FormState.getField('title');
+    document.getElementById('mType').value            = FormState.getField('type');
+    document.getElementById('mDate').value            = FormState.getField('date');
+    document.getElementById('mTime').value            = FormState.getField('time');
+    document.getElementById('mEndTime').value         = FormState.getField('endTime');
+    document.getElementById('mAttendees').value       = FormState.getField('attendees');
+    document.getElementById('mTags').value            = FormState.getField('tags').join(', ');
+    document.getElementById('mNotes').value           = FormState.getField('notes');
     document.getElementById('duplicateBtn').style.display = 'inline-flex';
     updateWordCount();
 
     const container = document.getElementById('mActionItems');
     container.innerHTML = '';
-    formAIs.forEach(ai => addAIRow(ai));
+    FormState.getActionItems().forEach(ai => addAIRow(ai));
     openModal();
 };
 
 window.deleteMeeting = async function(id) {
-    if (!confirm('Delete this meeting?')) return;
     meetings = meetings.filter(m => m.id !== id);
     await saveData();
     render();
@@ -1022,16 +1191,17 @@ window.copyMeeting = function(id) {
 
 // ── Duplicate Meeting ─────────────────────────────────────────────────────────
 function duplicateMeeting() {
+    const editingId = FormState.getEditingId();
     if (editingId === null) return;
     const m = meetings.find(x => x.id === editingId);
     if (!m) return;
     closeModal();
     const copy = JSON.parse(JSON.stringify(m));
-    copy.id = Date.now();
+    copy.id = newId();
     copy.title = m.title + ' (Copy)';
     copy.createdAt = new Date().toISOString();
     copy.pinned = false;
-    copy.actionItems = copy.actionItems.map(ai => ({ ...ai, id: Date.now() + Math.random(), done: false }));
+    copy.actionItems = copy.actionItems.map(ai => ({ ...ai, id: newId(), done: false }));
     meetings.unshift(copy);
     saveData().then(() => {
         render();
@@ -1047,7 +1217,6 @@ async function aiExtractActions() {
         return;
     }
 
-    // Get or prompt for Gemini API key
     let apiKey = localStorage.getItem('ml-gemini-key') || '';
     if (!apiKey) {
         apiKey = prompt(
@@ -1114,13 +1283,13 @@ ${notes}`;
         if (parsed.actionItems && parsed.actionItems.length > 0) {
             parsed.actionItems.forEach(ai => {
                 const item = {
-                    id: Date.now() + Math.random(),
+                    id: newId(),
                     text: ai.text || '',
                     assignee: ai.assignee || '',
                     dueDate: ai.dueDate || '',
                     done: false
                 };
-                formAIs.push(item);
+                FormState._data.actionItems.push(item);
                 addAIRow(item);
             });
             showToast(`✨ Extracted ${parsed.actionItems.length} action item${parsed.actionItems.length > 1 ? 's' : ''}!`, 'success');
@@ -1185,6 +1354,7 @@ function launchConfetti() {
 function showShortcuts() {
     document.getElementById('shortcutsModal').style.display = 'flex';
 }
+
 function hideShortcuts() {
     document.getElementById('shortcutsModal').style.display = 'none';
 }
@@ -1337,7 +1507,6 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-    // cycle through themes
     const keys = Object.keys(THEMES);
     const cur  = document.documentElement.getAttribute('data-theme') || 'dark';
     const next = keys[(keys.indexOf(cur) + 1) % keys.length];
@@ -1372,7 +1541,6 @@ function showThemePicker() {
     document.getElementById('themeBtn').parentNode.style.position = 'relative';
     document.getElementById('themeBtn').after(picker);
 
-    // close on outside click
     setTimeout(() => {
         document.addEventListener('click', function closePicker(e) {
             if (!picker.contains(e.target) && e.target.id !== 'themeBtn') {
